@@ -1,4 +1,4 @@
-package;
+package funkin.util.flixel.sound;
 
 import haxe.io.Bytes;
 import haxe.io.BytesInput;
@@ -9,7 +9,7 @@ import lime.media.AudioBuffer;
 import lime.net.HTTPRequest;
 import lime.net.HTTPRequestHeader;
 
-class PartialSoundUtil
+class FlxPartialSound
 {
 	/**
 	 * returns empty audio buffer on error

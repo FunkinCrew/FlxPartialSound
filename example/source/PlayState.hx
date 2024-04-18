@@ -2,6 +2,7 @@ package;
 
 import flixel.FlxG;
 import flixel.FlxState;
+import funkin.util.flixel.sound.FlxPartialSound;
 import haxe.io.BytesInput;
 import haxe.io.Input;
 import js.html.InputElement;
@@ -18,7 +19,7 @@ class PlayState extends FlxState
 	{
 		super.create();
 
-		var sndRequest = PartialSoundUtil.partialLoadFromFile("assets/music/Inst.mp3", 0.2, 0.5);
+		var sndRequest = FlxPartialSound.partialLoadFromFile("assets/music/Inst.mp3", 0.2, 0.5);
 
 		sndRequest.onComplete(function(buffer:AudioBuffer)
 		{
