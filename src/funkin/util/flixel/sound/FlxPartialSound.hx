@@ -8,6 +8,8 @@ import lime.app.Promise;
 import lime.media.AudioBuffer;
 import lime.net.HTTPRequest;
 import lime.net.HTTPRequestHeader;
+import sys.io.File;
+import sys.io.FileInput;
 
 class FlxPartialSound
 {
@@ -54,7 +56,33 @@ class FlxPartialSound
 
 		return promise.future;
 		#elseif sys
-		// load from filesystem
+		var promise:Promise<AudioBuffer> = new Promise<AudioBuffer>();
+		var fileInput = sys.io.File.read(path);
+		var fileStat = sys.FileSystem.stat(path);
+		var byteNum:Int = 0;
+
+		var oggString:String = "";
+		var firstOggPos:Int = -1;
+		for (byte in 0...fileStat.size)
+		{
+			var byteValue = fileInput.readByte();
+			if (byteValue == "O".code || byteValue == "g".code || byteValue == "S".code)
+			{
+				oggString += String.fromCharCode(byteValue);
+			}
+			else
+				oggString = "";
+
+			if (oggString == "OggS")
+			{
+				if (firstOggPos == -1)
+					firstOggPos = byte - 4;
+				trace("found OggS at byte: " + (byte - 4));
+			}
+		}
+		// trace(fileInput.readAll());
+
+		return promise.future;
 		#end
 	}
 
