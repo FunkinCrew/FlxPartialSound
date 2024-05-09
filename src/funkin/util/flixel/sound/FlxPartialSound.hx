@@ -1,5 +1,6 @@
 package funkin.util.flixel.sound;
 
+import flixel.FlxG;
 import haxe.io.Bytes;
 import haxe.io.BytesInput;
 import haxe.io.Path;
@@ -8,6 +9,8 @@ import lime.app.Promise;
 import lime.media.AudioBuffer;
 import lime.net.HTTPRequest;
 import lime.net.HTTPRequestHeader;
+import openfl.media.Sound;
+import openfl.utils.Assets;
 #if sys
 import sys.io.File;
 import sys.io.FileInput;
@@ -15,6 +18,14 @@ import sys.io.FileInput;
 
 class FlxPartialSound
 {
+	public static function partialLoadAndPlayFile(path:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Future<Sound>
+	{
+		return partialLoadFromFile(path, rangeStart, rangeEnd).onComplete(function(sound:Sound)
+		{
+			FlxG.sound.play(sound);
+		});
+	}
+
 	/**
 	 * returns empty audio buffer on error
 	 * @param path 
@@ -22,10 +33,16 @@ class FlxPartialSound
 	 * @param rangeEnd what percent of the song should it end at
 	 * @return Future<AudioBuffer>
 	 */
-	public static function partialLoadFromFile(path:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Future<AudioBuffer>
+	public static function partialLoadFromFile(path:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Future<Sound>
 	{
 		#if (html || js)
-		var promise:Promise<AudioBuffer> = new Promise<AudioBuffer>();
+		var promise:Promise<Sound> = new Promise<Sound>();
+
+		if (Assets.cache.hasSound(path + ".partial-" + rangeStart + "-" + rangeEnd))
+		{
+			promise.complete(Assets.cache.getSound(path + ".partial-" + rangeStart + "-" + rangeEnd));
+			return promise.future;
+		}
 
 		requestContentLength(path).onComplete(function(contentLength:Int)
 		{
@@ -52,7 +69,8 @@ class FlxPartialSound
 					default:
 						promise.error("Unsupported file type: " + Path.extension(path));
 				}
-				promise.complete(audioBuffer);
+				Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, Sound.fromAudioBuffer(audioBuffer));
+				promise.complete(Sound.fromAudioBuffer(audioBuffer));
 			});
 		});
 

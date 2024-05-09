@@ -18,18 +18,17 @@ class PlayState extends FlxState
 	{
 		super.create();
 
-		var sndRequest = FlxPartialSound.partialLoadFromFile("assets/music/Pico.mp3", 0.2, 0.5);
-
-		sndRequest.onComplete(function(buffer:AudioBuffer)
-		{
-			var snd:Sound = Sound.fromAudioBuffer(buffer);
-			FlxG.sound.play(snd);
-		});
+		FlxPartialSound.partialLoadAndPlayFile("assets/music/Pico.mp3", 0.2, 0.3);
 		// snd.loadCompressedDataFromByteArray(ByteArray.fromBytes(data), data.length);
 	}
 
 	override public function update(elapsed:Float)
 	{
 		super.update(elapsed);
+
+		if (FlxG.keys.justPressed.SPACE)
+		{
+			FlxPartialSound.partialLoadAndPlayFile("assets/music/Pico.mp3", 0.2, 0.3);
+		}
 	}
 }
