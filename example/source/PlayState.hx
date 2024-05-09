@@ -18,7 +18,7 @@ class PlayState extends FlxState
 	{
 		super.create();
 
-		var sndRequest = FlxPartialSound.partialLoadFromFile("assets/music/Senpai.ogg", 0.2, 0.5);
+		var sndRequest = FlxPartialSound.partialLoadFromFile("assets/music/Pico.mp3", 0.2, 0.5);
 
 		sndRequest.onComplete(function(buffer:AudioBuffer)
 		{

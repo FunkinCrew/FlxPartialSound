@@ -8,8 +8,10 @@ import lime.app.Promise;
 import lime.media.AudioBuffer;
 import lime.net.HTTPRequest;
 import lime.net.HTTPRequestHeader;
+#if sys
 import sys.io.File;
 import sys.io.FileInput;
+#end
 
 class FlxPartialSound
 {
