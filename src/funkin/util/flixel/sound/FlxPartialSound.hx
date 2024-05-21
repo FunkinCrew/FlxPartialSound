@@ -118,40 +118,49 @@ class FlxPartialSound
 		switch (Path.extension(path))
 		{
 			case "ogg":
-				var oggBytesIntro = Bytes.alloc(16 * 400);
-
-				while (byteNum < 16 * 400)
+				var oggBytesAsync = new Future<Bytes>(function()
 				{
-					oggBytesIntro.set(byteNum, fileInput.readByte());
-					byteNum++;
-				}
+					var oggBytesIntro = Bytes.alloc(16 * 400);
+					while (byteNum < 16 * 400)
+					{
+						oggBytesIntro.set(byteNum, fileInput.readByte());
+						byteNum++;
+					}
+					return cleanOggBytes(oggBytesIntro);
+				}, true);
 
-				oggBytesIntro = cleanOggBytes(oggBytesIntro);
-
-				var oggRangeMin:Float = rangeStart * fileStat.size;
-				var oggRangeMax:Float = rangeEnd * fileStat.size;
-				var oggBytesFull = Bytes.alloc(Std.int(oggRangeMax - oggRangeMin));
-
-				byteNum = 0;
-				fileInput.seek(Std.int(oggRangeMin), FileSeek.SeekBegin);
-
-				while (byteNum < oggRangeMax - oggRangeMin)
+				oggBytesAsync.onComplete(function(oggBytesIntro:Bytes)
 				{
-					oggBytesFull.set(byteNum, fileInput.readByte());
-					byteNum++;
-				}
+					var oggRangeMin:Float = rangeStart * fileStat.size;
+					var oggRangeMax:Float = rangeEnd * fileStat.size;
+					var oggBytesFull = Bytes.alloc(Std.int(oggRangeMax - oggRangeMin));
 
-				oggBytesFull = cleanOggBytes(oggBytesFull);
+					byteNum = 0;
+					fileInput.seek(Std.int(oggRangeMin), FileSeek.SeekBegin);
 
-				var oggFullBytes = Bytes.alloc(oggBytesIntro.length + oggBytesFull.length);
-				oggFullBytes.blit(0, oggBytesIntro, 0, oggBytesIntro.length);
-				oggFullBytes.blit(oggBytesIntro.length, oggBytesFull, 0, oggBytesFull.length);
-				fileInput.close();
+					var fullBytesAsync = new Future<Bytes>(function()
+					{
+						while (byteNum < oggRangeMax - oggRangeMin)
+						{
+							oggBytesFull.set(byteNum, fileInput.readByte());
+							byteNum++;
+						}
+						return cleanOggBytes(oggBytesFull);
+					}, true);
 
-				var audioBuffer:AudioBuffer = parseBytesOgg(oggFullBytes);
+					fullBytesAsync.onComplete(function(fullAssOgg:Bytes)
+					{
+						var oggFullBytes = Bytes.alloc(oggBytesIntro.length + fullAssOgg.length);
+						oggFullBytes.blit(0, oggBytesIntro, 0, oggBytesIntro.length);
+						oggFullBytes.blit(oggBytesIntro.length, fullAssOgg, 0, fullAssOgg.length);
+						fileInput.close();
 
-				Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, Sound.fromAudioBuffer(audioBuffer));
-				promise.complete(Sound.fromAudioBuffer(audioBuffer));
+						var audioBuffer:AudioBuffer = parseBytesOgg(oggFullBytes);
+
+						Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, Sound.fromAudioBuffer(audioBuffer));
+						promise.complete(Sound.fromAudioBuffer(audioBuffer));
+					});
+				});
 
 			default:
 				promise.error("Unsupported file type: " + Path.extension(path));
