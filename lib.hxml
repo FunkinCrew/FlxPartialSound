@@ -1,2 +1,3 @@
 -lib lime
---js bin/cpp
+-lib openfl
+--cpp bin/cpp

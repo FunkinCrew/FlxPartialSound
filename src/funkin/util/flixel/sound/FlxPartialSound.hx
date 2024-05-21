@@ -12,6 +12,7 @@ import lime.net.HTTPRequest;
 import lime.net.HTTPRequestHeader;
 import openfl.media.Sound;
 import openfl.utils.Assets;
+import sys.io.FileSeek;
 
 using StringTools;
 
@@ -22,6 +23,14 @@ import sys.io.FileInput;
 
 class FlxPartialSound
 {
+	/**
+	 * Loads partial sound bytes from a file, returning a Sound object.
+	 * Will play the sound after loading via FlxG.sound.play()
+	 * @param path 
+	 * @param rangeStart what percent of the song should it start at
+	 * @param rangeEnd what percent of the song should it end at
+	 * @return Future<Sound>
+	 */
 	public static function partialLoadAndPlayFile(path:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Future<Sound>
 	{
 		return partialLoadFromFile(path, rangeStart, rangeEnd).onComplete(function(sound:Sound)
@@ -31,11 +40,13 @@ class FlxPartialSound
 	}
 
 	/**
-	 * returns empty audio buffer on error
+	 * Loads partial sound bytes from a file, returning a Sound object.
+	 * Will load via HTTP Range header on HTML5, and load the bytes from the file on native.
+	 * On subsequent calls, will return a cached Sound object from Assets.cache
 	 * @param path 
 	 * @param rangeStart what percent of the song should it start at
 	 * @param rangeEnd what percent of the song should it end at
-	 * @return Future<AudioBuffer>
+	 * @return Future<Sound>
 	 */
 	public static function partialLoadFromFile(path:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Future<Sound>
 	{
@@ -50,14 +61,13 @@ class FlxPartialSound
 
 		requestContentLength(path).onComplete(function(contentLength:Int)
 		{
-			trace("content length: " + contentLength);
 			var startByte:Int = Std.int(contentLength * rangeStart);
 			var endByte:Int = Std.int(contentLength * rangeEnd);
-
-			trace("startByte: " + startByte);
-			trace("endByte: " + endByte);
 			var byteRange:String = startByte + '-' + endByte;
 
+			// for ogg files, we want to get a certain amount of header info stored at the beginning of the file
+			// which I believe helps initiate the audio stream properly for any section of audio
+			// 0-6400 is a random guess, could be fuckie with other audio
 			if (Path.extension(path) == "ogg")
 				byteRange = '0-' + Std.string(16 * 400);
 
@@ -66,7 +76,6 @@ class FlxPartialSound
 			http.headers.push(rangeHeader);
 			http.load().onComplete(function(data:Bytes)
 			{
-				trace("incoming data length: " + data.length);
 				var audioBuffer:AudioBuffer = new AudioBuffer();
 				switch (Path.extension(path))
 				{
@@ -81,7 +90,6 @@ class FlxPartialSound
 						httpFull.headers.push(rangeHeader);
 						httpFull.load().onComplete(function(fullOggData)
 						{
-							trace("ogg incoming data length: " + fullOggData.length);
 							var cleanIntroBytes = cleanOggBytes(data);
 							var cleanFullBytes = cleanOggBytes(fullOggData);
 							var fullBytes = Bytes.alloc(cleanIntroBytes.length + cleanFullBytes.length);
@@ -101,30 +109,47 @@ class FlxPartialSound
 
 		return promise.future;
 		#elseif sys
-		var promise:Promise<AudioBuffer> = new Promise<AudioBuffer>();
+		var promise:Promise<Sound> = new Promise<Sound>();
 		var fileInput = sys.io.File.read(path);
 		var fileStat = sys.FileSystem.stat(path);
 		var byteNum:Int = 0;
 
-		var oggString:String = "";
-		var firstOggPos:Int = -1;
-		for (byte in 0...fileStat.size)
-		{
-			var byteValue = fileInput.readByte();
-			if (byteValue == "O".code || byteValue == "g".code || byteValue == "S".code)
-			{
-				oggString += String.fromCharCode(byteValue);
-			}
-			else
-				oggString = "";
+		// on sys, it will always be an ogg file, although eventually we might want to add WAV?
 
-			if (oggString == "OggS")
-			{
-				if (firstOggPos == -1)
-					firstOggPos = byte - 4;
-				trace("found OggS at byte: " + (byte - 4));
-			}
+		switch (Path.extension(path))
+		{
+			case "ogg":
+				var oggBytesIntro = Bytes.alloc(16 * 400);
+
+				while (byteNum < 16 * 400)
+				{
+					oggBytesIntro.set(byteNum, fileInput.readByte());
+					byteNum++;
+				}
+
+				var oggRangeMin:Float = rangeStart * fileStat.size;
+				var oggRangeMax:Float = rangeEnd * fileStat.size;
+				var oggBytesFull = Bytes.alloc(Std.int(oggRangeMax - oggRangeMin));
+
+				byteNum = 0;
+				fileInput.seek(Std.int(oggRangeMin), FileSeek.SeekBegin);
+
+				while (byteNum < oggRangeMax - oggRangeMin)
+				{
+					oggBytesFull.set(byteNum, fileInput.readByte());
+					byteNum++;
+				}
+
+				var oggFullBytes = Bytes.alloc(oggBytesIntro.length + oggBytesFull.length);
+				oggFullBytes.blit(0, oggBytesIntro, 0, oggBytesIntro.length);
+				oggFullBytes.blit(oggBytesIntro.length, oggBytesFull, 0, oggBytesFull.length);
+
+				promise.complete(Sound.fromAudioBuffer((parseBytesOgg(oggFullBytes))));
+
+			default:
+				promise.error("Unsupported file type: " + Path.extension(path));
 		}
+
 		// trace(fileInput.readAll());
 
 		return promise.future;
@@ -160,7 +185,6 @@ class FlxPartialSound
 	 */
 	public static function parseBytesMp3(data:Bytes):AudioBuffer
 	{
-		trace('incoming data length: ' + data.length);
 		// need to find the first "frame" of the mp3 data, which would be a byte with the value 255
 		// followed by a byte with the value where the value is 251, 250, or 243
 		// reading
@@ -199,10 +223,6 @@ class FlxPartialSound
 		var bytesLength = lastFrameSyncBytePos - frameSyncBytePos;
 		var output = Bytes.alloc(bytesLength + 1);
 
-		trace("frameSyncBytePos: " + frameSyncBytePos);
-		trace("lastFrameSyncBytePos: " + lastFrameSyncBytePos);
-		trace("bytesLength: " + bytesLength);
-		trace("data.length: " + data.length);
 		output.blit(0, data, frameSyncBytePos, bytesLength);
 		return AudioBuffer.fromBytes(output);
 	}
@@ -231,8 +251,6 @@ class FlxPartialSound
 
 			if (oggString == "OggS")
 			{
-				trace("OggS: " + byte);
-
 				if (firstByte == -1)
 				{
 					firstByte = byte - 3;
@@ -243,9 +261,6 @@ class FlxPartialSound
 
 				var version = data.get(byte + 1);
 				var headerType = data.get(byte + 2);
-
-				trace("Version: " + version);
-				trace("Header: " + headerType);
 			}
 		}
 
