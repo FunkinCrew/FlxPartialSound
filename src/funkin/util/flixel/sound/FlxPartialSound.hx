@@ -126,6 +126,8 @@ class FlxPartialSound
 					byteNum++;
 				}
 
+				oggBytesIntro = cleanOggBytes(oggBytesIntro);
+
 				var oggRangeMin:Float = rangeStart * fileStat.size;
 				var oggRangeMax:Float = rangeEnd * fileStat.size;
 				var oggBytesFull = Bytes.alloc(Std.int(oggRangeMax - oggRangeMin));
@@ -138,6 +140,8 @@ class FlxPartialSound
 					oggBytesFull.set(byteNum, fileInput.readByte());
 					byteNum++;
 				}
+
+				oggBytesFull = cleanOggBytes(oggBytesFull);
 
 				var oggFullBytes = Bytes.alloc(oggBytesIntro.length + oggBytesFull.length);
 				oggFullBytes.blit(0, oggBytesIntro, 0, oggBytesIntro.length);
