@@ -50,7 +50,6 @@ class FlxPartialSound
 	 */
 	public static function partialLoadFromFile(path:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Future<Sound>
 	{
-		#if (html || js)
 		var promise:Promise<Sound> = new Promise<Sound>();
 
 		if (Assets.cache.hasSound(path + ".partial-" + rangeStart + "-" + rangeEnd))
@@ -59,6 +58,7 @@ class FlxPartialSound
 			return promise.future;
 		}
 
+		#if (html || js)
 		requestContentLength(path).onComplete(function(contentLength:Int)
 		{
 			var startByte:Int = Std.int(contentLength * rangeStart);
@@ -109,7 +109,6 @@ class FlxPartialSound
 
 		return promise.future;
 		#elseif sys
-		var promise:Promise<Sound> = new Promise<Sound>();
 		var fileInput = sys.io.File.read(path);
 		var fileStat = sys.FileSystem.stat(path);
 		var byteNum:Int = 0;
@@ -143,8 +142,12 @@ class FlxPartialSound
 				var oggFullBytes = Bytes.alloc(oggBytesIntro.length + oggBytesFull.length);
 				oggFullBytes.blit(0, oggBytesIntro, 0, oggBytesIntro.length);
 				oggFullBytes.blit(oggBytesIntro.length, oggBytesFull, 0, oggBytesFull.length);
+				fileInput.close();
 
-				promise.complete(Sound.fromAudioBuffer((parseBytesOgg(oggFullBytes))));
+				var audioBuffer:AudioBuffer = parseBytesOgg(oggFullBytes);
+
+				Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, Sound.fromAudioBuffer(audioBuffer));
+				promise.complete(Sound.fromAudioBuffer(audioBuffer));
 
 			default:
 				promise.error("Unsupported file type: " + Path.extension(path));
