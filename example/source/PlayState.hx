@@ -18,7 +18,7 @@ class PlayState extends FlxState
 	{
 		super.create();
 
-		FlxPartialSound.partialLoadAndPlayFile("assets/music/Pico.mp3", 0.2, 0.3);
+		FlxPartialSound.partialLoadAndPlayFile("assets/music/Senpai.ogg", 0.1, 0.2);
 		// snd.loadCompressedDataFromByteArray(ByteArray.fromBytes(data), data.length);
 	}
 
@@ -28,7 +28,8 @@ class PlayState extends FlxState
 
 		if (FlxG.keys.justPressed.SPACE)
 		{
-			FlxPartialSound.partialLoadAndPlayFile("assets/music/Pico.mp3", 0.2, 0.3);
+			FlxG.sound.defaultSoundGroup.pause();
+			FlxPartialSound.partialLoadAndPlayFile("assets/music/Senpai.ogg", 0.1, 0.2);
 		}
 	}
 }

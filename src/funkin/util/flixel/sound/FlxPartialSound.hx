@@ -4,6 +4,7 @@ import flixel.FlxG;
 import haxe.io.Bytes;
 import haxe.io.BytesInput;
 import haxe.io.Path;
+import haxe.io.UInt8Array;
 import lime.app.Future;
 import lime.app.Promise;
 import lime.media.AudioBuffer;
@@ -11,6 +12,9 @@ import lime.net.HTTPRequest;
 import lime.net.HTTPRequestHeader;
 import openfl.media.Sound;
 import openfl.utils.Assets;
+
+using StringTools;
+
 #if sys
 import sys.io.File;
 import sys.io.FileInput;
@@ -52,9 +56,13 @@ class FlxPartialSound
 
 			trace("startByte: " + startByte);
 			trace("endByte: " + endByte);
+			var byteRange:String = startByte + '-' + endByte;
+
+			if (Path.extension(path) == "ogg")
+				byteRange = '0-' + Std.string(16 * 400);
 
 			var http = new HTTPRequest<Bytes>(path);
-			var rangeHeader:HTTPRequestHeader = new HTTPRequestHeader("Range", 'bytes=$startByte-$endByte');
+			var rangeHeader:HTTPRequestHeader = new HTTPRequestHeader("Range", "bytes=" + byteRange);
 			http.headers.push(rangeHeader);
 			http.load().onComplete(function(data:Bytes)
 			{
@@ -64,13 +72,30 @@ class FlxPartialSound
 				{
 					case "mp3":
 						audioBuffer = parseBytesMp3(data);
+						Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, Sound.fromAudioBuffer(audioBuffer));
+						promise.complete(Sound.fromAudioBuffer(audioBuffer));
 					case "ogg":
-						promise.error("OGG not supported yet");
+						var httpFull = new HTTPRequest<Bytes>(path);
+
+						rangeHeader = new HTTPRequestHeader("Range", "bytes=" + startByte + '-' + endByte);
+						httpFull.headers.push(rangeHeader);
+						httpFull.load().onComplete(function(fullOggData)
+						{
+							trace("ogg incoming data length: " + fullOggData.length);
+							var cleanIntroBytes = cleanOggBytes(data);
+							var cleanFullBytes = cleanOggBytes(fullOggData);
+							var fullBytes = Bytes.alloc(cleanIntroBytes.length + cleanFullBytes.length);
+							fullBytes.blit(0, cleanIntroBytes, 0, cleanIntroBytes.length);
+							fullBytes.blit(cleanIntroBytes.length, cleanFullBytes, 0, cleanFullBytes.length);
+
+							audioBuffer = parseBytesOgg(fullBytes);
+							Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, Sound.fromAudioBuffer(audioBuffer));
+							promise.complete(Sound.fromAudioBuffer(audioBuffer));
+						});
+
 					default:
 						promise.error("Unsupported file type: " + Path.extension(path));
 				}
-				Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, Sound.fromAudioBuffer(audioBuffer));
-				promise.complete(Sound.fromAudioBuffer(audioBuffer));
 			});
 		});
 
@@ -180,5 +205,54 @@ class FlxPartialSound
 		trace("data.length: " + data.length);
 		output.blit(0, data, frameSyncBytePos, bytesLength);
 		return AudioBuffer.fromBytes(output);
+	}
+
+	public static function parseBytesOgg(data:Bytes):AudioBuffer
+	{
+		var cleanedBytes = cleanOggBytes(data);
+		return AudioBuffer.fromBytes(cleanedBytes);
+	}
+
+	static function cleanOggBytes(data:Bytes):Bytes
+	{
+		var byteInput:BytesInput = new BytesInput(data);
+		var firstByte:Int = -1;
+		var lastByte:Int = -1;
+		var oggString:String = "";
+
+		for (byte in 0...data.length)
+		{
+			var byteValue = byteInput.readByte();
+
+			if (byteValue == "O".code || byteValue == "g".code || byteValue == "S".code)
+				oggString += String.fromCharCode(byteValue);
+			else
+				oggString = "";
+
+			if (oggString == "OggS")
+			{
+				trace("OggS: " + byte);
+
+				if (firstByte == -1)
+				{
+					firstByte = byte - 3;
+					data.set(byte + 2, 2);
+				}
+
+				lastByte = byte - 3;
+
+				var version = data.get(byte + 1);
+				var headerType = data.get(byte + 2);
+
+				trace("Version: " + version);
+				trace("Header: " + headerType);
+			}
+		}
+
+		var byteLength = lastByte - firstByte;
+		var output = Bytes.alloc(byteLength + 1);
+		output.blit(0, data, firstByte, byteLength);
+
+		return output;
 	}
 }

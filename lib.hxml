@@ -1,2 +1,2 @@
 -lib lime
---cpp bin/cpp
+--js bin/cpp
