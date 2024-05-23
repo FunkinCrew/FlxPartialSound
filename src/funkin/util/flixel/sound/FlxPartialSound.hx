@@ -26,7 +26,7 @@ class FlxPartialSound
 	/**
 	 * Loads partial sound bytes from a file, returning a Sound object.
 	 * Will play the sound after loading via FlxG.sound.play()
-	 * @param path 
+	 * @param path
 	 * @param rangeStart what percent of the song should it start at
 	 * @param rangeEnd what percent of the song should it end at
 	 * @return Future<Sound>
@@ -43,7 +43,7 @@ class FlxPartialSound
 	 * Loads partial sound bytes from a file, returning a Sound object.
 	 * Will load via HTTP Range header on HTML5, and load the bytes from the file on native.
 	 * On subsequent calls, will return a cached Sound object from Assets.cache
-	 * @param path 
+	 * @param path
 	 * @param rangeStart what percent of the song should it start at
 	 * @param rangeEnd what percent of the song should it end at
 	 * @return Future<Sound>
@@ -96,7 +96,7 @@ class FlxPartialSound
 							fullBytes.blit(0, cleanIntroBytes, 0, cleanIntroBytes.length);
 							fullBytes.blit(cleanIntroBytes.length, cleanFullBytes, 0, cleanFullBytes.length);
 
-							audioBuffer = parseBytesOgg(fullBytes);
+							audioBuffer = parseBytesOgg(fullBytes, true);
 							Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, Sound.fromAudioBuffer(audioBuffer));
 							promise.complete(Sound.fromAudioBuffer(audioBuffer));
 						});
@@ -155,10 +155,11 @@ class FlxPartialSound
 						oggFullBytes.blit(oggBytesIntro.length, fullAssOgg, 0, fullAssOgg.length);
 						fileInput.close();
 
-						var audioBuffer:AudioBuffer = parseBytesOgg(oggFullBytes);
+						var audioBuffer:AudioBuffer = parseBytesOgg(oggFullBytes, true);
 
-						Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, Sound.fromAudioBuffer(audioBuffer));
-						promise.complete(Sound.fromAudioBuffer(audioBuffer));
+						var sndShit = Sound.fromAudioBuffer(audioBuffer);
+						Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, sndShit);
+						promise.complete(sndShit);
 					});
 				});
 
@@ -243,9 +244,9 @@ class FlxPartialSound
 		return AudioBuffer.fromBytes(output);
 	}
 
-	public static function parseBytesOgg(data:Bytes):AudioBuffer
+	public static function parseBytesOgg(data:Bytes, skipCleaning:Bool = false):AudioBuffer
 	{
-		var cleanedBytes = cleanOggBytes(data);
+		var cleanedBytes = skipCleaning ? data : cleanOggBytes(data);
 		return AudioBuffer.fromBytes(cleanedBytes);
 	}
 
