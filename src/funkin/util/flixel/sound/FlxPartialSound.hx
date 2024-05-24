@@ -12,13 +12,13 @@ import lime.net.HTTPRequest;
 import lime.net.HTTPRequestHeader;
 import openfl.media.Sound;
 import openfl.utils.Assets;
-import sys.io.FileSeek;
 
 using StringTools;
 
 #if sys
 import sys.io.File;
 import sys.io.FileInput;
+import sys.io.FileSeek;
 #end
 
 class FlxPartialSound
