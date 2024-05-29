@@ -33,7 +33,7 @@ class FlxPartialSound
 	 */
 	public static function partialLoadAndPlayFile(path:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Future<Sound>
 	{
-		return partialLoadFromFile(path, rangeStart, rangeEnd).onComplete(function(sound:Sound)
+		return partialLoadFromFile(path, rangeStart, rangeEnd).future.onComplete(function(sound:Sound)
 		{
 			FlxG.sound.play(sound);
 		});
@@ -48,14 +48,14 @@ class FlxPartialSound
 	 * @param rangeEnd what percent of the song should it end at
 	 * @return Future<Sound>
 	 */
-	public static function partialLoadFromFile(path:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Future<Sound>
+	public static function partialLoadFromFile(path:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Promise<Sound>
 	{
 		var promise:Promise<Sound> = new Promise<Sound>();
 
 		if (Assets.cache.hasSound(path + ".partial-" + rangeStart + "-" + rangeEnd))
 		{
 			promise.complete(Assets.cache.getSound(path + ".partial-" + rangeStart + "-" + rangeEnd));
-			return promise.future;
+			return promise;
 		}
 
 		#if (html || js)
@@ -107,7 +107,7 @@ class FlxPartialSound
 			});
 		});
 
-		return promise.future;
+		return promise;
 		#elseif sys
 		var fileInput = sys.io.File.read(path);
 		var fileStat = sys.FileSystem.stat(path);
@@ -169,7 +169,7 @@ class FlxPartialSound
 
 		// trace(fileInput.readAll());
 
-		return promise.future;
+		return promise;
 		#end
 	}
 
