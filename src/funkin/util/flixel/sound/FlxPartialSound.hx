@@ -109,6 +109,11 @@ class FlxPartialSound
 
 		return promise;
 		#elseif sys
+		if (!sys.FileSystem.exists(path)) {
+			FlxG.log.warn("Could not find audio file for partial playback: " + path);
+			return null;
+		}
+
 		var fileInput = sys.io.File.read(path);
 		var fileStat = sys.FileSystem.stat(path);
 		var byteNum:Int = 0;
