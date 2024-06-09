@@ -15,12 +15,6 @@ import openfl.utils.Assets;
 
 using StringTools;
 
-#if sys
-import sys.io.File;
-import sys.io.FileInput;
-import sys.io.FileSeek;
-#end
-
 class FlxPartialSound
 {
 	/**
@@ -58,7 +52,7 @@ class FlxPartialSound
 			return promise;
 		}
 
-		#if (html || js)
+		#if web
 		requestContentLength(path).onComplete(function(contentLength:Int)
 		{
 			var startByte:Int = Std.int(contentLength * rangeStart);
@@ -108,18 +102,20 @@ class FlxPartialSound
 		});
 
 		return promise;
-		#elseif sys
-		if (!sys.FileSystem.exists(path)) {
+		#else
+		if (!Assets.exists(path))
+		{
 			FlxG.log.warn("Could not find audio file for partial playback: " + path);
 			return null;
 		}
 
 		var byteNum:Int = 0;
 
-		// on sys, it will always be an ogg file, although eventually we might want to add WAV?
+		// it will always be an ogg file, although eventually we might want to add WAV?
 		Assets.loadBytes(path).onComplete(function(data:openfl.utils.ByteArray)
 		{
-			var bytesInput = new BytesInput(data);
+			var input = new BytesInput(data);
+
 			@:privateAccess
 			var size = bytesInput.b.length;
 
@@ -131,7 +127,7 @@ class FlxPartialSound
 						var oggBytesIntro = Bytes.alloc(16 * 400);
 						while (byteNum < 16 * 400)
 						{
-							oggBytesIntro.set(byteNum, bytesInput.readByte());
+							oggBytesIntro.set(byteNum, input.readByte());
 							byteNum++;
 						}
 						return cleanOggBytes(oggBytesIntro);
@@ -144,16 +140,17 @@ class FlxPartialSound
 						var oggBytesFull = Bytes.alloc(Std.int(oggRangeMax - oggRangeMin));
 
 						byteNum = 0;
-						bytesInput.position = Std.int(oggRangeMin);
-						// fileInput.seek(Std.int(oggRangeMin), FileSeek.SeekBegin);
+
+						input.position = Std.int(oggRangeMin);
 
 						var fullBytesAsync = new Future<Bytes>(function()
 						{
 							while (byteNum < oggRangeMax - oggRangeMin)
 							{
-								oggBytesFull.set(byteNum, bytesInput.readByte());
+								oggBytesFull.set(byteNum, input.readByte());
 								byteNum++;
 							}
+
 							return cleanOggBytes(oggBytesFull);
 						}, true);
 
