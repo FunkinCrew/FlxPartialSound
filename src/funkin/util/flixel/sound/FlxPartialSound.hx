@@ -117,7 +117,7 @@ class FlxPartialSound
 			var input = new BytesInput(data);
 
 			@:privateAccess
-			var size = bytesInput.b.length;
+			var size = input.b.length;
 
 			switch (Path.extension(path))
 			{
@@ -159,7 +159,7 @@ class FlxPartialSound
 							var oggFullBytes = Bytes.alloc(oggBytesIntro.length + fullAssOgg.length);
 							oggFullBytes.blit(0, oggBytesIntro, 0, oggBytesIntro.length);
 							oggFullBytes.blit(oggBytesIntro.length, fullAssOgg, 0, fullAssOgg.length);
-							bytesInput.close();
+							input.close();
 
 							var audioBuffer:AudioBuffer = parseBytesOgg(oggFullBytes, true);
 
