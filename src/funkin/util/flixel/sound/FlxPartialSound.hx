@@ -114,63 +114,68 @@ class FlxPartialSound
 			return null;
 		}
 
-		var fileInput = sys.io.File.read(path);
-		var fileStat = sys.FileSystem.stat(path);
 		var byteNum:Int = 0;
 
 		// on sys, it will always be an ogg file, although eventually we might want to add WAV?
-
-		switch (Path.extension(path))
+		Assets.loadBytes(path).onComplete(function(data:openfl.utils.ByteArray)
 		{
-			case "ogg":
-				var oggBytesAsync = new Future<Bytes>(function()
-				{
-					var oggBytesIntro = Bytes.alloc(16 * 400);
-					while (byteNum < 16 * 400)
+			var bytesInput = new BytesInput(data);
+			@:privateAccess
+			var size = bytesInput.b.length;
+
+			switch (Path.extension(path))
+			{
+				case "ogg":
+					var oggBytesAsync = new Future<Bytes>(function()
 					{
-						oggBytesIntro.set(byteNum, fileInput.readByte());
-						byteNum++;
-					}
-					return cleanOggBytes(oggBytesIntro);
-				}, true);
-
-				oggBytesAsync.onComplete(function(oggBytesIntro:Bytes)
-				{
-					var oggRangeMin:Float = rangeStart * fileStat.size;
-					var oggRangeMax:Float = rangeEnd * fileStat.size;
-					var oggBytesFull = Bytes.alloc(Std.int(oggRangeMax - oggRangeMin));
-
-					byteNum = 0;
-					fileInput.seek(Std.int(oggRangeMin), FileSeek.SeekBegin);
-
-					var fullBytesAsync = new Future<Bytes>(function()
-					{
-						while (byteNum < oggRangeMax - oggRangeMin)
+						var oggBytesIntro = Bytes.alloc(16 * 400);
+						while (byteNum < 16 * 400)
 						{
-							oggBytesFull.set(byteNum, fileInput.readByte());
+							oggBytesIntro.set(byteNum, bytesInput.readByte());
 							byteNum++;
 						}
-						return cleanOggBytes(oggBytesFull);
+						return cleanOggBytes(oggBytesIntro);
 					}, true);
 
-					fullBytesAsync.onComplete(function(fullAssOgg:Bytes)
+					oggBytesAsync.onComplete(function(oggBytesIntro:Bytes)
 					{
-						var oggFullBytes = Bytes.alloc(oggBytesIntro.length + fullAssOgg.length);
-						oggFullBytes.blit(0, oggBytesIntro, 0, oggBytesIntro.length);
-						oggFullBytes.blit(oggBytesIntro.length, fullAssOgg, 0, fullAssOgg.length);
-						fileInput.close();
+						var oggRangeMin:Float = rangeStart * size;
+						var oggRangeMax:Float = rangeEnd * size;
+						var oggBytesFull = Bytes.alloc(Std.int(oggRangeMax - oggRangeMin));
 
-						var audioBuffer:AudioBuffer = parseBytesOgg(oggFullBytes, true);
+						byteNum = 0;
+						bytesInput.position = Std.int(oggRangeMin);
+						// fileInput.seek(Std.int(oggRangeMin), FileSeek.SeekBegin);
 
-						var sndShit = Sound.fromAudioBuffer(audioBuffer);
-						Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, sndShit);
-						promise.complete(sndShit);
+						var fullBytesAsync = new Future<Bytes>(function()
+						{
+							while (byteNum < oggRangeMax - oggRangeMin)
+							{
+								oggBytesFull.set(byteNum, bytesInput.readByte());
+								byteNum++;
+							}
+							return cleanOggBytes(oggBytesFull);
+						}, true);
+
+						fullBytesAsync.onComplete(function(fullAssOgg:Bytes)
+						{
+							var oggFullBytes = Bytes.alloc(oggBytesIntro.length + fullAssOgg.length);
+							oggFullBytes.blit(0, oggBytesIntro, 0, oggBytesIntro.length);
+							oggFullBytes.blit(oggBytesIntro.length, fullAssOgg, 0, fullAssOgg.length);
+							bytesInput.close();
+
+							var audioBuffer:AudioBuffer = parseBytesOgg(oggFullBytes, true);
+
+							var sndShit = Sound.fromAudioBuffer(audioBuffer);
+							Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, sndShit);
+							promise.complete(sndShit);
+						});
 					});
-				});
 
-			default:
-				promise.error("Unsupported file type: " + Path.extension(path));
-		}
+				default:
+					promise.error("Unsupported file type: " + Path.extension(path));
+			}
+		});
 
 		// trace(fileInput.readAll());
 
