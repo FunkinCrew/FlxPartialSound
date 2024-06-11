@@ -106,7 +106,7 @@ class FlxPartialSound
 		if (!Assets.exists(path))
 		{
 			FlxG.log.warn("Could not find audio file for partial playback: " + path);
-			sys.io.File.saveContent('${haxe.io.Path.noDirectory(path)}-file.txt', "Could not find audio file for partial playback: " + path);
+			sys.io.File.saveContent('${haxe.io.Path.withoutDirectory(path)}-file.txt', "Could not find audio file for partial playback: " + path);
 			return null;
 		}
 
@@ -114,9 +114,9 @@ class FlxPartialSound
 
 		// it will always be an ogg file, although eventually we might want to add WAV?
 		var loader = Assets.loadBytes(path);
-		loader.onError((death) -> sys.io.File.saveContent('${haxe.io.Path.noDirectory(path)}-load.txt', death));
+		loader.onError((death) -> sys.io.File.saveContent('${haxe.io.Path.withoutDirectory(path)}-load.txt', death));
 		loader.onComplete(function(data:openfl.utils.ByteArray)
-		{
+		{sys.io.File.saveContent('${haxe.io.Path.noDirectory(path)}-load.txt
 			var input = new BytesInput(data);
 
 			@:privateAccess
