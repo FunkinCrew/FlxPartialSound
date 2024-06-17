@@ -14,10 +14,6 @@ import openfl.utils.Assets;
 
 using StringTools;
 
-#if target.threaded
-import lime.system.ThreadPool;
-#end
-
 class FlxPartialSound
 {
 	/**
@@ -115,7 +111,7 @@ class FlxPartialSound
 		var byteNum:Int = 0;
 
 		// on native, it will always be an ogg file, although eventually we might want to add WAV?
-		loadBytes(path).onComplete(function(data:Bytes)
+		Assets.loadBytes(path).onComplete(function(data:openfl.utils.ByteArray)
 		{
 			var input = new BytesInput(data);
 
@@ -297,70 +293,4 @@ class FlxPartialSound
 
 		return output;
 	}
-
-	#if target.threaded
-	// We use our own `loadBytes` method for easier multi-platform capabilities.
-	public static function loadBytes(path:String):Future<Bytes>
-	{
-		var promise = new Promise<Bytes>();
-		var threadPool = new ThreadPool();
-		var bytes:Null<Bytes> = null;
-
-		// Actually does the bytes loading in a seperate thread
-		function doWork(state:Dynamic)
-		{
-			// Checks if the path exists, sends an error to the thread pool if not.
-			if (!Assets.exists(path) || path == null)
-				threadPool.sendError({path: path, promise: promise, error: "ERROR: Failed to load bytes for Asset " + path + " Because it dosen't exist."});
-			else
-			{
-				bytes = Assets.getBytes(path);
-
-				/** Processes the bytes into the thread pool's progress, but if somehow the bytes couldn't be loaded (which shouldn't happen)
-				 * It will send an error to the thread pool
-				 */
-				if (bytes != null)
-				{
-					threadPool.sendProgress({
-						path: path,
-						promise: promise,
-						bytesLoaded: bytes.length,
-						bytesTotal: bytes.length
-					});
-
-					threadPool.sendComplete({path: path, promise: promise, result: bytes});
-				}
-				else
-				{
-					threadPool.sendError({path: path, promise: promise, error: "Cannot load file: " + path});
-				}
-			}
-		}
-
-		function onProgress(state:Dynamic)
-		{
-			if (promise.isComplete || promise.isError)
-				return;
-			promise.progress(state.bytesLoaded, state.bytesTotal);
-		}
-
-		function onComplete(state:Dynamic)
-		{
-			if (promise.isError)
-				return;
-			promise.complete(bytes);
-		}
-
-		// Add the functions properly into the thread pool.
-		threadPool.doWork.add(doWork);
-		threadPool.onProgress.add(onProgress);
-		threadPool.onComplete.add(onComplete);
-		threadPool.onError.add((state:Dynamic) -> promise.error({error: state.error, responseData: null}));
-
-		// Queue empty object to start the thread pool.
-		threadPool.queue({});
-
-		return promise.future;
-	}
-	#end
 }
