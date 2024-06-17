@@ -4,12 +4,14 @@ import flixel.FlxG;
 import haxe.io.Bytes;
 import haxe.io.BytesInput;
 import haxe.io.Path;
-import haxe.io.UInt8Array;
 import lime.app.Future;
 import lime.app.Promise;
 import lime.media.AudioBuffer;
 import lime.net.HTTPRequest;
 import lime.net.HTTPRequestHeader;
+#if target.threaded
+import lime.system.ThreadPool;
+#end
 import openfl.media.Sound;
 import openfl.utils.Assets;
 
@@ -106,16 +108,13 @@ class FlxPartialSound
 		if (!Assets.exists(path))
 		{
 			FlxG.log.warn("Could not find audio file for partial playback: " + path);
-			sys.io.File.saveContent('${haxe.io.Path.withoutDirectory(path)}-file.txt', "Could not find audio file for partial playback: " + path);
 			return null;
 		}
 
 		var byteNum:Int = 0;
 
-		// it will always be an ogg file, although eventually we might want to add WAV?
-		var loader = Assets.loadBytes(path);
-		loader.onError((death) -> sys.io.File.saveContent('${haxe.io.Path.withoutDirectory(path)}-load.txt', death));
-		loader.onComplete(function(data:openfl.utils.ByteArray)
+		// on native, it will always be an ogg file, although eventually we might want to add WAV?
+		loadBytes(path).onComplete(function(data:Bytes)
 		{
 			var input = new BytesInput(data);
 
@@ -297,4 +296,60 @@ class FlxPartialSound
 
 		return output;
 	}
+
+	#if target.threaded
+	public static function loadBytes(path:String):Future<Bytes>
+  {
+    var promise = new Promise<Bytes>();
+    var threadPool = new ThreadPool();
+    var bytes:Null<Bytes> = null;
+
+    function doWork(state:Dynamic)
+    {
+      if(!Assets.exists(path) || path == null)
+        threadPool.sendError({path: path, promise: promise, error: "ERROR: Failed to load bytes for Asset " + path + " Because it dosen't exist."});
+      else
+      {
+        bytes = Assets.getBytes(path);
+
+        if(bytes != null)
+        {
+          threadPool.sendProgress({
+	  				path: path,
+		  			promise: promise,
+			  		bytesLoaded: bytes.length,
+				  	bytesTotal: bytes.length
+			  	});
+
+          threadPool.sendComplete({path: path, promise: promise, result: bytes});
+        }
+        else
+        {
+          threadPool.sendError({path: path, promise: promise, error: "Cannot load file: " + path});
+        }
+      }
+    }
+
+    function onProgress(state:Dynamic)
+    {
+      if (promise.isComplete || promise.isError) return;
+      promise.progress(state.bytesLoaded, state.bytesTotal);
+    }
+
+    function onComplete(state:Dynamic)
+    {
+      if(promise.isError) return;
+      promise.complete(bytes);
+    }
+
+    threadPool.doWork.add(doWork);
+    threadPool.onProgress.add(onProgress);
+    threadPool.onComplete.add(onComplete);
+    threadPool.onError.add((state:Dynamic) -> promise.error({error: state.error, responseData: null}));
+
+    threadPool.queue({});
+
+    return promise.future;
+  }
+	#end
 }
