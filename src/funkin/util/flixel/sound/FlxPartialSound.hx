@@ -9,13 +9,14 @@ import lime.app.Promise;
 import lime.media.AudioBuffer;
 import lime.net.HTTPRequest;
 import lime.net.HTTPRequestHeader;
-#if target.threaded
-import lime.system.ThreadPool;
-#end
 import openfl.media.Sound;
 import openfl.utils.Assets;
 
 using StringTools;
+
+#if target.threaded
+import lime.system.ThreadPool;
+#end
 
 class FlxPartialSound
 {
@@ -298,58 +299,68 @@ class FlxPartialSound
 	}
 
 	#if target.threaded
+	// We use our own `loadBytes` method for easier multi-platform capabilities.
 	public static function loadBytes(path:String):Future<Bytes>
-  {
-    var promise = new Promise<Bytes>();
-    var threadPool = new ThreadPool();
-    var bytes:Null<Bytes> = null;
+	{
+		var promise = new Promise<Bytes>();
+		var threadPool = new ThreadPool();
+		var bytes:Null<Bytes> = null;
 
-    function doWork(state:Dynamic)
-    {
-      if(!Assets.exists(path) || path == null)
-        threadPool.sendError({path: path, promise: promise, error: "ERROR: Failed to load bytes for Asset " + path + " Because it dosen't exist."});
-      else
-      {
-        bytes = Assets.getBytes(path);
+		// Actually does the bytes loading in a seperate thread
+		function doWork(state:Dynamic)
+		{
+			// Checks if the path exists, sends an error to the thread pool if not.
+			if (!Assets.exists(path) || path == null)
+				threadPool.sendError({path: path, promise: promise, error: "ERROR: Failed to load bytes for Asset " + path + " Because it dosen't exist."});
+			else
+			{
+				bytes = Assets.getBytes(path);
 
-        if(bytes != null)
-        {
-          threadPool.sendProgress({
-	  				path: path,
-		  			promise: promise,
-			  		bytesLoaded: bytes.length,
-				  	bytesTotal: bytes.length
-			  	});
+				/** Processes the bytes into the thread pool's progress, but if somehow the bytes couldn't be loaded (which shouldn't happen)
+				 * It will send an error to the thread pool
+				 */
+				if (bytes != null)
+				{
+					threadPool.sendProgress({
+						path: path,
+						promise: promise,
+						bytesLoaded: bytes.length,
+						bytesTotal: bytes.length
+					});
 
-          threadPool.sendComplete({path: path, promise: promise, result: bytes});
-        }
-        else
-        {
-          threadPool.sendError({path: path, promise: promise, error: "Cannot load file: " + path});
-        }
-      }
-    }
+					threadPool.sendComplete({path: path, promise: promise, result: bytes});
+				}
+				else
+				{
+					threadPool.sendError({path: path, promise: promise, error: "Cannot load file: " + path});
+				}
+			}
+		}
 
-    function onProgress(state:Dynamic)
-    {
-      if (promise.isComplete || promise.isError) return;
-      promise.progress(state.bytesLoaded, state.bytesTotal);
-    }
+		function onProgress(state:Dynamic)
+		{
+			if (promise.isComplete || promise.isError)
+				return;
+			promise.progress(state.bytesLoaded, state.bytesTotal);
+		}
 
-    function onComplete(state:Dynamic)
-    {
-      if(promise.isError) return;
-      promise.complete(bytes);
-    }
+		function onComplete(state:Dynamic)
+		{
+			if (promise.isError)
+				return;
+			promise.complete(bytes);
+		}
 
-    threadPool.doWork.add(doWork);
-    threadPool.onProgress.add(onProgress);
-    threadPool.onComplete.add(onComplete);
-    threadPool.onError.add((state:Dynamic) -> promise.error({error: state.error, responseData: null}));
+		// Add the functions properly into the thread pool.
+		threadPool.doWork.add(doWork);
+		threadPool.onProgress.add(onProgress);
+		threadPool.onComplete.add(onComplete);
+		threadPool.onError.add((state:Dynamic) -> promise.error({error: state.error, responseData: null}));
 
-    threadPool.queue({});
+		// Queue empty object to start the thread pool.
+		threadPool.queue({});
 
-    return promise.future;
-  }
+		return promise.future;
+	}
 	#end
 }
