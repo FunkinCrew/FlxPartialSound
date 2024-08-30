@@ -48,7 +48,7 @@ class PartialSoundMetadata
   {
     if (!this.cache.exists(sound))
     {
-      this.cache.set(sound, {kbps:kbps, introOffsetMs:null});
+      this.cache.set(sound, {kbps:kbps, introOffsetMs:0});
     }
     else
     {
@@ -60,7 +60,7 @@ class PartialSoundMetadata
   {
     if (!this.cache.exists(sound))
     {
-      this.cache.set(sound, {kbps:null, introOffsetMs:introOffsetMs});
+      this.cache.set(sound, {kbps:0, introOffsetMs:introOffsetMs});
     }
     else
     {
