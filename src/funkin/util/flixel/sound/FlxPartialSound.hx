@@ -41,7 +41,7 @@ class FlxPartialSound
 	 * @param rangeEnd what percent of the song should it end at
 	 * @return Future<Sound>
 	 */
-	public static function partialLoadFromFile(path:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Promise<Sound>
+	public static function partialLoadFromFile(path:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1, ?paddedIntro:Bool = false):Promise<Sound>
 	{
 		var promise:Promise<Sound> = new Promise<Sound>();
 
@@ -67,15 +67,23 @@ class FlxPartialSound
 			var http = new HTTPRequest<Bytes>(path);
 			var rangeHeader:HTTPRequestHeader = new HTTPRequestHeader("Range", "bytes=" + byteRange);
 			http.headers.push(rangeHeader);
+
 			http.load().onComplete(function(data:Bytes)
 			{
 				var audioBuffer:AudioBuffer = new AudioBuffer();
 				switch (Path.extension(path))
 				{
 					case "mp3":
-						audioBuffer = parseBytesMp3(data);
-						Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, Sound.fromAudioBuffer(audioBuffer));
-						promise.complete(Sound.fromAudioBuffer(audioBuffer));
+						var mp3Data = parseBytesMp3(data, true, startByte);
+						audioBuffer = mp3Data.buf;
+
+
+						var snd = Sound.fromAudioBuffer(audioBuffer);
+						Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, snd);
+						PartialSoundMetadata.instance.set(path + rangeStart, {kbps:mp3Data.kbps, introOffsetMs:mp3Data.introLengthMs});
+						trace(PartialSoundMetadata.instance.get(path + rangeStart));
+						promise.complete(snd);
+
 					case "ogg":
 						var httpFull = new HTTPRequest<Bytes>(path);
 
@@ -115,8 +123,12 @@ class FlxPartialSound
 		{
 			var input = new BytesInput(data);
 
+			#if !hl
 			@:privateAccess
 			var size = input.b.length;
+			#else
+			var size = input.length;
+			#end
 
 			switch (Path.extension(path))
 			{
@@ -204,9 +216,11 @@ class FlxPartialSound
 	/**
 	 * Parses bytes from a partial mp3 file, and returns an AudioBuffer with proper sound data.
 	 * @param data bytes from an MP3 file
+	 * @param paddedIntro whether to pad the intro of the audio with silence/empty data, to help sync with it's original version
+	 * @param startByte how many bytes into the original audio are we reading from, to use for padding the intro
 	 * @return AudioBuffer, via AudioBuffer.fromBytes()
 	 */
-	public static function parseBytesMp3(data:Bytes):AudioBuffer
+	public static function parseBytesMp3(data:Bytes, ?paddedIntro:Bool = false, ?startByte:Int = 0):{buf:AudioBuffer, ?kbps:Int, ?introLengthMs:Int}
 	{
 		// need to find the first "frame" of the mp3 data, which would be a byte with the value 255
 		// followed by a byte with the value where the value is 251, 250, or 243
@@ -221,6 +235,10 @@ class FlxPartialSound
 		// BytesInput to read front to back of the data easier
 		var byteInput:BytesInput = new BytesInput(data);
 
+		var frameCount:Int = 0;
+
+		var bitrateAvg:Map<Int, Int> = new Map();
+
 		for (byte in 0...data.length)
 		{
 			var byteValue = byteInput.readByte();
@@ -231,9 +249,25 @@ class FlxPartialSound
 			{
 				var mpegVersion = (nextByte & 0x18) >> 3; // gets the 4th and 5th bits of the next byte, for MPEG version
 				var nextFrameSync = (nextByte & 0xE0) >> 5; // gets the first 3 bits of the next byte, which should be 111
+
 				// i stole the values from "nextByte" from how Lime checks for valid mp3 frame data
 				if (nextFrameSync == 7 && (nextByte == 251 || nextByte == 250 || nextByte == 243))
 				{
+
+					frameCount++;
+					var byte2 = data.get(byte + 2);
+					var bitrateIndex = (byte2 & 0xF0) >> 4;
+					var bitrateArray = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320];
+					var bitrate = bitrateArray[bitrateIndex];
+
+					var samplingRateIndex = (byte2 & 0x0C) >> 2;
+					var sampleRateArray = [44100, 48000, 32000];
+					var sampleRate = sampleRateArray[samplingRateIndex];
+
+					if (paddedIntro)
+						bitrateAvg[bitrate] = bitrateAvg.exists(bitrate) ? bitrateAvg.get(bitrate) + 1 : 1;
+
+
 					if (frameSyncBytePos == -1)
 						frameSyncBytePos = byte;
 
@@ -243,11 +277,38 @@ class FlxPartialSound
 			}
 		}
 
+		var outputInfo:Dynamic = {};
+
+		var mostCommonBitrate = 0;
+		if (paddedIntro)
+		{
+			for (bitrate in bitrateAvg.keys())
+			{
+				if (bitrateAvg.get(bitrate) > bitrateAvg.get(mostCommonBitrate))
+					mostCommonBitrate = bitrate;
+			}
+
+			// bitrate is in bits rather than kilobits, so we're getting the milliseconds of the intro
+			// also since it's in bits, we divide by 8 to get bytes
+			var introLengthMs:Int = Math.round(startByte / (mostCommonBitrate / 8));
+
+			// length of an mp3 frame in milliseconds
+			var frameLengthMs:Float = 26;
+
+			// how many frames we need to pad the intro with
+			var framesNeeded = Math.floor(introLengthMs / frameLengthMs);
+
+			outputInfo.introLengthMs = introLengthMs;
+			outputInfo.kbps = mostCommonBitrate;
+		}
+
+
+
 		var bytesLength = lastFrameSyncBytePos - frameSyncBytePos;
 		var output = Bytes.alloc(bytesLength + 1);
-
 		output.blit(0, data, frameSyncBytePos, bytesLength);
-		return AudioBuffer.fromBytes(output);
+		outputInfo.buf = AudioBuffer.fromBytes(output);
+		return outputInfo;
 	}
 
 	public static function parseBytesOgg(data:Bytes, skipCleaning:Bool = false):AudioBuffer
