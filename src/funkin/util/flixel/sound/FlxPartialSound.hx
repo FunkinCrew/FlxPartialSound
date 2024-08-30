@@ -74,14 +74,13 @@ class FlxPartialSound
 				switch (Path.extension(path))
 				{
 					case "mp3":
-						var mp3Data = parseBytesMp3(data, true, startByte);
+						var mp3Data = parseBytesMp3(data, startByte);
 						audioBuffer = mp3Data.buf;
 
 
 						var snd = Sound.fromAudioBuffer(audioBuffer);
 						Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, snd);
 						PartialSoundMetadata.instance.set(path + rangeStart, {kbps:mp3Data.kbps, introOffsetMs:mp3Data.introLengthMs});
-						trace(PartialSoundMetadata.instance.get(path + rangeStart));
 						promise.complete(snd);
 
 					case "ogg":
@@ -185,8 +184,6 @@ class FlxPartialSound
 			}
 		});
 
-		// trace(fileInput.readAll());
-
 		return promise;
 		#end
 	}
@@ -216,11 +213,10 @@ class FlxPartialSound
 	/**
 	 * Parses bytes from a partial mp3 file, and returns an AudioBuffer with proper sound data.
 	 * @param data bytes from an MP3 file
-	 * @param paddedIntro whether to pad the intro of the audio with silence/empty data, to help sync with it's original version
-	 * @param startByte how many bytes into the original audio are we reading from, to use for padding the intro
-	 * @return AudioBuffer, via AudioBuffer.fromBytes()
+	 * @param startByte how many bytes into the original audio are we reading from, to use to calculate extra metadata (introLengthMs)
+	 * @return {buf:AudioBuffer, kbps:Int, introLengthMs:Int} AudioBuffer, kbps of the audio, and the length of the intro in milliseconds
 	 */
-	public static function parseBytesMp3(data:Bytes, ?paddedIntro:Bool = false, ?startByte:Int = 0):{buf:AudioBuffer, ?kbps:Int, ?introLengthMs:Int}
+	public static function parseBytesMp3(data:Bytes, ?startByte:Int = 0):{buf:AudioBuffer, ?kbps:Int, ?introLengthMs:Int}
 	{
 		// need to find the first "frame" of the mp3 data, which would be a byte with the value 255
 		// followed by a byte with the value where the value is 251, 250, or 243
@@ -235,6 +231,7 @@ class FlxPartialSound
 		// BytesInput to read front to back of the data easier
 		var byteInput:BytesInput = new BytesInput(data);
 
+		// How many mp3 frames we found
 		var frameCount:Int = 0;
 
 		var bitrateAvg:Map<Int, Int> = new Map();
@@ -253,8 +250,8 @@ class FlxPartialSound
 				// i stole the values from "nextByte" from how Lime checks for valid mp3 frame data
 				if (nextFrameSync == 7 && (nextByte == 251 || nextByte == 250 || nextByte == 243))
 				{
-
 					frameCount++;
+
 					var byte2 = data.get(byte + 2);
 					var bitrateIndex = (byte2 & 0xF0) >> 4;
 					var bitrateArray = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320];
@@ -264,8 +261,7 @@ class FlxPartialSound
 					var sampleRateArray = [44100, 48000, 32000];
 					var sampleRate = sampleRateArray[samplingRateIndex];
 
-					if (paddedIntro)
-						bitrateAvg[bitrate] = bitrateAvg.exists(bitrate) ? bitrateAvg.get(bitrate) + 1 : 1;
+					bitrateAvg[bitrate] = bitrateAvg.exists(bitrate) ? bitrateAvg.get(bitrate) + 1 : 1;
 
 
 					if (frameSyncBytePos == -1)
@@ -277,37 +273,34 @@ class FlxPartialSound
 			}
 		}
 
+		// what we'll actually return
 		var outputInfo:Dynamic = {};
 
 		var mostCommonBitrate = 0;
-		if (paddedIntro)
+		for (bitrate in bitrateAvg.keys())
 		{
-			for (bitrate in bitrateAvg.keys())
-			{
-				if (bitrateAvg.get(bitrate) > bitrateAvg.get(mostCommonBitrate))
-					mostCommonBitrate = bitrate;
-			}
-
-			// bitrate is in bits rather than kilobits, so we're getting the milliseconds of the intro
-			// also since it's in bits, we divide by 8 to get bytes
-			var introLengthMs:Int = Math.round(startByte / (mostCommonBitrate / 8));
-
-			// length of an mp3 frame in milliseconds
-			var frameLengthMs:Float = 26;
-
-			// how many frames we need to pad the intro with
-			var framesNeeded = Math.floor(introLengthMs / frameLengthMs);
-
-			outputInfo.introLengthMs = introLengthMs;
-			outputInfo.kbps = mostCommonBitrate;
+			if (bitrateAvg.get(bitrate) > bitrateAvg.get(mostCommonBitrate))
+				mostCommonBitrate = bitrate;
 		}
 
+		// bitrate is in bits rather than kilobits, so we're getting the milliseconds of the intro
+		// also since it's in bits, we divide by 8 to get bytes
+		var introLengthMs:Int = Math.round(startByte / (mostCommonBitrate / 8));
 
+		// length of an mp3 frame in milliseconds
+		var frameLengthMs:Float = 26;
+
+		// how many frames we need to pad the intro with
+		var framesNeeded = Math.floor(introLengthMs / frameLengthMs);
+
+		outputInfo.introLengthMs = introLengthMs;
+		outputInfo.kbps = mostCommonBitrate;
 
 		var bytesLength = lastFrameSyncBytePos - frameSyncBytePos;
-		var output = Bytes.alloc(bytesLength + 1);
-		output.blit(0, data, frameSyncBytePos, bytesLength);
-		outputInfo.buf = AudioBuffer.fromBytes(output);
+		var bufferBytes = Bytes.alloc(bytesLength + 1);
+		bufferBytes.blit(0, data, frameSyncBytePos, bytesLength);
+
+		outputInfo.buf = AudioBuffer.fromBytes(bufferBytes);
 		return outputInfo;
 	}
 
