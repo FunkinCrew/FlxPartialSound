@@ -32,6 +32,18 @@ class PartialSoundMetadata
     this.cache.set(sound, metadata);
   }
 
+  public function getKbps(sound:String):Int
+  {
+    if (!this.cache.exists(sound)) return 0;
+    return this.cache.get(sound).kbps;
+  }
+
+  public function getIntroOffset(sound:String):Int
+  {
+    if (!this.cache.exists(sound)) return 0;
+    return this.cache.get(sound).introOffsetMs;
+  }
+
   public function setKbps(sound:String, kbps:Int):Void
   {
     if (!this.cache.exists(sound))
