@@ -44,7 +44,7 @@ class FlxPartialSound
 	 * @param rangeEnd what percent of the song should it end at
 	 * @return Future<Sound>
 	 */
-	public static function partialLoadFromFile(path:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Promise<Sound>
+	public static function partialLoadFromFile(path:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1, ?paddedIntro:Bool = false):Promise<Sound>
 	{
 		var promise:Promise<Sound> = new Promise<Sound>();
 
@@ -70,15 +70,22 @@ class FlxPartialSound
 			var http = new HTTPRequest<Bytes>(path);
 			var rangeHeader:HTTPRequestHeader = new HTTPRequestHeader("Range", "bytes=" + byteRange);
 			http.headers.push(rangeHeader);
+
 			http.load().onComplete(function(data:Bytes)
 			{
 				var audioBuffer:AudioBuffer = new AudioBuffer();
 				switch (Path.extension(path))
 				{
 					case "mp3":
-						audioBuffer = parseBytesMp3(data);
-						Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, Sound.fromAudioBuffer(audioBuffer));
-						promise.complete(Sound.fromAudioBuffer(audioBuffer));
+						var mp3Data = parseBytesMp3(data, startByte);
+						audioBuffer = mp3Data.buf;
+
+
+						var snd = Sound.fromAudioBuffer(audioBuffer);
+						Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, snd);
+						PartialSoundMetadata.instance.set(path + rangeStart, {kbps:mp3Data.kbps, introOffsetMs:mp3Data.introLengthMs});
+						promise.complete(snd);
+
 					case "ogg":
 						var httpFull = new HTTPRequest<Bytes>(path);
 
@@ -118,8 +125,12 @@ class FlxPartialSound
 		{
 			var input = new BytesInput(data);
 
+			#if !hl
 			@:privateAccess
 			var size = input.b.length;
+			#else
+			var size = input.length;
+			#end
 
 			switch (Path.extension(path))
 			{
@@ -176,8 +187,6 @@ class FlxPartialSound
 			}
 		});
 
-		// trace(fileInput.readAll());
-
 		return promise;
 		#end
 	}
@@ -207,9 +216,10 @@ class FlxPartialSound
 	/**
 	 * Parses bytes from a partial mp3 file, and returns an AudioBuffer with proper sound data.
 	 * @param data bytes from an MP3 file
-	 * @return AudioBuffer, via AudioBuffer.fromBytes()
+	 * @param startByte how many bytes into the original audio are we reading from, to use to calculate extra metadata (introLengthMs)
+	 * @return {buf:AudioBuffer, kbps:Int, introLengthMs:Int} AudioBuffer, kbps of the audio, and the length of the intro in milliseconds
 	 */
-	public static function parseBytesMp3(data:Bytes):AudioBuffer
+	public static function parseBytesMp3(data:Bytes, ?startByte:Int = 0):{buf:AudioBuffer, ?kbps:Int, ?introLengthMs:Int}
 	{
 		// need to find the first "frame" of the mp3 data, which would be a byte with the value 255
 		// followed by a byte with the value where the value is 251, 250, or 243
@@ -224,6 +234,11 @@ class FlxPartialSound
 		// BytesInput to read front to back of the data easier
 		var byteInput:BytesInput = new BytesInput(data);
 
+		// How many mp3 frames we found
+		var frameCount:Int = 0;
+
+		var bitrateAvg:Map<Int, Int> = new Map();
+
 		for (byte in 0...data.length)
 		{
 			var byteValue = byteInput.readByte();
@@ -234,9 +249,24 @@ class FlxPartialSound
 			{
 				var mpegVersion = (nextByte & 0x18) >> 3; // gets the 4th and 5th bits of the next byte, for MPEG version
 				var nextFrameSync = (nextByte & 0xE0) >> 5; // gets the first 3 bits of the next byte, which should be 111
+
 				// i stole the values from "nextByte" from how Lime checks for valid mp3 frame data
 				if (nextFrameSync == 7 && (nextByte == 251 || nextByte == 250 || nextByte == 243))
 				{
+					frameCount++;
+
+					var byte2 = data.get(byte + 2);
+					var bitrateIndex = (byte2 & 0xF0) >> 4;
+					var bitrateArray = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320];
+					var bitrate = bitrateArray[bitrateIndex];
+
+					var samplingRateIndex = (byte2 & 0x0C) >> 2;
+					var sampleRateArray = [44100, 48000, 32000];
+					var sampleRate = sampleRateArray[samplingRateIndex];
+
+					bitrateAvg[bitrate] = bitrateAvg.exists(bitrate) ? bitrateAvg.get(bitrate) + 1 : 1;
+
+
 					if (frameSyncBytePos == -1)
 						frameSyncBytePos = byte;
 
@@ -246,11 +276,35 @@ class FlxPartialSound
 			}
 		}
 
-		var bytesLength = lastFrameSyncBytePos - frameSyncBytePos;
-		var output = Bytes.alloc(bytesLength + 1);
+		// what we'll actually return
+		var outputInfo:Dynamic = {};
 
-		output.blit(0, data, frameSyncBytePos, bytesLength);
-		return AudioBuffer.fromBytes(output);
+		var mostCommonBitrate = 0;
+		for (bitrate in bitrateAvg.keys())
+		{
+			if (bitrateAvg.get(bitrate) > bitrateAvg.get(mostCommonBitrate))
+				mostCommonBitrate = bitrate;
+		}
+
+		// bitrate is in bits rather than kilobits, so we're getting the milliseconds of the intro
+		// also since it's in bits, we divide by 8 to get bytes
+		var introLengthMs:Int = Math.round(startByte / (mostCommonBitrate / 8));
+
+		// length of an mp3 frame in milliseconds
+		var frameLengthMs:Float = 26;
+
+		// how many frames we need to pad the intro with
+		var framesNeeded = Math.floor(introLengthMs / frameLengthMs);
+
+		outputInfo.introLengthMs = introLengthMs;
+		outputInfo.kbps = mostCommonBitrate;
+
+		var bytesLength = lastFrameSyncBytePos - frameSyncBytePos;
+		var bufferBytes = Bytes.alloc(bytesLength + 1);
+		bufferBytes.blit(0, data, frameSyncBytePos, bytesLength);
+
+		outputInfo.buf = AudioBuffer.fromBytes(bufferBytes);
+		return outputInfo;
 	}
 
 	public static function parseBytesOgg(data:Bytes, skipCleaning:Bool = false):AudioBuffer
@@ -299,57 +353,59 @@ class FlxPartialSound
 
 	#if target.threaded
 	public static function loadBytes(path:String):Future<Bytes>
-  {
-    var promise = new Promise<Bytes>();
-    var threadPool = new ThreadPool();
-    var bytes:Null<Bytes> = null;
+	{
+		var promise = new Promise<Bytes>();
+		var threadPool = new ThreadPool();
+		var bytes:Null<Bytes> = null;
 
-    function doWork(state:Dynamic)
-    {
-      if(!Assets.exists(path) || path == null)
-        threadPool.sendError({path: path, promise: promise, error: "ERROR: Failed to load bytes for Asset " + path + " Because it dosen't exist."});
-      else
-      {
-        bytes = Assets.getBytes(path);
+		function doWork(state:Dynamic)
+		{
+			if (!Assets.exists(path) || path == null)
+				threadPool.sendError({path: path, promise: promise, error: "ERROR: Failed to load bytes for Asset " + path + " Because it dosen't exist."});
+			else
+			{
+				bytes = Assets.getBytes(path);
 
-        if(bytes != null)
-        {
-          threadPool.sendProgress({
-	  				path: path,
-		  			promise: promise,
-			  		bytesLoaded: bytes.length,
-				  	bytesTotal: bytes.length
-			  	});
+				if (bytes != null)
+				{
+					threadPool.sendProgress({
+						path: path,
+						promise: promise,
+						bytesLoaded: bytes.length,
+						bytesTotal: bytes.length
+					});
 
-          threadPool.sendComplete({path: path, promise: promise, result: bytes});
-        }
-        else
-        {
-          threadPool.sendError({path: path, promise: promise, error: "Cannot load file: " + path});
-        }
-      }
-    }
+					threadPool.sendComplete({path: path, promise: promise, result: bytes});
+				}
+				else
+				{
+					threadPool.sendError({path: path, promise: promise, error: "Cannot load file: " + path});
+				}
+			}
+		}
 
-    function onProgress(state:Dynamic)
-    {
-      if (promise.isComplete || promise.isError) return;
-      promise.progress(state.bytesLoaded, state.bytesTotal);
-    }
+		function onProgress(state:Dynamic)
+		{
+			if (promise.isComplete || promise.isError)
+				return;
+			promise.progress(state.bytesLoaded, state.bytesTotal);
+		}
 
-    function onComplete(state:Dynamic)
-    {
-      if(promise.isError) return;
-      promise.complete(bytes);
-    }
+		function onComplete(state:Dynamic)
+		{
+			if (promise.isError)
+				return;
+			promise.complete(bytes);
+		}
 
-    threadPool.doWork.add(doWork);
-    threadPool.onProgress.add(onProgress);
-    threadPool.onComplete.add(onComplete);
-    threadPool.onError.add((state:Dynamic) -> promise.error({error: state.error, responseData: null}));
+		threadPool.doWork.add(doWork);
+		threadPool.onProgress.add(onProgress);
+		threadPool.onComplete.add(onComplete);
+		threadPool.onError.add((state:Dynamic) -> promise.error({error: state.error, responseData: null}));
 
-    threadPool.queue({});
+		threadPool.queue({});
 
-    return promise.future;
-  }
+		return promise.future;
+	}
 	#end
 }
