@@ -1,5 +1,9 @@
 package funkin.util.flixel.sound;
 
+#if sys
+import sys.io.File;
+import sys.FileSystem;
+#end
 import flixel.FlxG;
 import haxe.io.Bytes;
 import haxe.io.BytesInput;
@@ -45,9 +49,33 @@ class FlxPartialSound
 	{
 		var promise:Promise<Sound> = new Promise<Sound>();
 
-		if (Assets.cache.hasSound(path + ".partial-" + rangeStart + "-" + rangeEnd))
+		var cacheName:String = path + ".partial-" + rangeStart + "-" + rangeEnd;
+
+		#if sys
+		#if windows
+		final cacheDir:String = Path.addTrailingSlash(Sys.getEnv("TEMP"));
+		#elseif (android || iphoneos)
+		final cacheDir:String = Path.addTrailingSlash(PathTool.getCacheDirectory());
+		#elseif mac
+		final cacheDir:String = Path.addTrailingSlash(Sys.getEnv("TMPDIR"));
+		#elseif linux
+		final cacheDir:String = "/tmp/";
+		#else
+		final cacheDir:String = ".cache/";
+		#end
+
+		if (FileSystem.exists(cacheDir + cacheName.replace(':', '/') + '.ogg') && !Assets.cache.hasSound(cacheName))
 		{
-			promise.complete(Assets.cache.getSound(path + ".partial-" + rangeStart + "-" + rangeEnd));
+			var oggFullBytes:Bytes = File.getBytes(cacheDir + cacheName.replace(':', '/') + '.ogg');
+			var audioBuffer:AudioBuffer = parseBytesOgg(oggFullBytes, true);
+			var sndShit = Sound.fromAudioBuffer(audioBuffer);
+			Assets.cache.setSound(cacheName, sndShit);
+		}
+		#end
+
+		if (Assets.cache.hasSound(cacheName))
+		{
+			promise.complete(Assets.cache.getSound(cacheName));
 			return promise;
 		}
 
@@ -79,7 +107,7 @@ class FlxPartialSound
 
 
 						var snd = Sound.fromAudioBuffer(audioBuffer);
-						Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, snd);
+						Assets.cache.setSound(cacheName, snd);
 						PartialSoundMetadata.instance.set(path + rangeStart, {kbps:mp3Data.kbps, introOffsetMs:mp3Data.introLengthMs});
 						promise.complete(snd);
 
@@ -97,7 +125,7 @@ class FlxPartialSound
 							fullBytes.blit(cleanIntroBytes.length, cleanFullBytes, 0, cleanFullBytes.length);
 
 							audioBuffer = parseBytesOgg(fullBytes, true);
-							Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, Sound.fromAudioBuffer(audioBuffer));
+							Assets.cache.setSound(cacheName, Sound.fromAudioBuffer(audioBuffer));
 							promise.complete(Sound.fromAudioBuffer(audioBuffer));
 						});
 
@@ -171,10 +199,12 @@ class FlxPartialSound
 							oggFullBytes.blit(oggBytesIntro.length, fullAssOgg, 0, fullAssOgg.length);
 							input.close();
 
-							var audioBuffer:AudioBuffer = parseBytesOgg(oggFullBytes, true);
+							FileSystem.createDirectory(Path.directory(cacheDir + path.replace(':', '/')));
+							File.saveBytes(cacheDir + cacheName.replace(':', '/') + '.ogg', oggFullBytes);
 
+							var audioBuffer:AudioBuffer = parseBytesOgg(oggFullBytes, true);
 							var sndShit = Sound.fromAudioBuffer(audioBuffer);
-							Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, sndShit);
+							Assets.cache.setSound(cacheName, sndShit);
 							promise.complete(sndShit);
 						});
 					});
@@ -348,3 +378,34 @@ class FlxPartialSound
 		return output;
 	}
 }
+
+#if (android || (iphoneos && cpp))
+#if (iphoneos && cpp)
+@:buildXml('<include name="${haxelib:FlxPartialSound}/extern/Build.xml" />')
+@:include('PathTool.hpp')
+@:unreflective
+#end
+private #if (iphoneos && cpp) extern #end class PathTool
+{
+	#if (iphoneos && cpp)
+  @:native('getCacheDirectory')
+  static function getCacheDirectory():cpp.ConstCahrStar;
+	#end
+
+	#if android
+	@:noCompletion
+	public static inline function getCacheDirectory():String
+	{
+		var context:Dynamic = lime.system.JNI.createStaticField('org/libsdl/app/SDL', 'mContext', 'Landroid/content/Context;').get();
+		var dir:Dynamic = lime.system.JNI.callMember(lime.system.JNI.createMemberMethod('android/content/Context', 'getCacheDir', '()Ljava/io/File;'), context, []);
+		return getAbsolutePath(dir);
+	}
+
+	@:noCompletion
+	private static inline function getAbsolutePath(file:Dynamic):String
+	{
+		return lime.system.JNI.callMember(lime.system.JNI.createMemberMethod('java/io/File', 'getAbsolutePath', '()Ljava/lang/String;'), file, []);
+	}
+	#end
+}
+#end
