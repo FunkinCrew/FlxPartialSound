@@ -394,13 +394,13 @@ class FlxPartialSound
 				threadPool.sendError({path: path, promise: promise, error: "ERROR: Failed to load bytes for Asset " + path + " Because it dosen't exist."});
 			else
 			{
-				if (Assets.exists(path))
+				if (FileSystem.exists(path))
 				{
-					bytes = Assets.getBytes(path);
+					bytes = File.getBytes(path);
 				}
 				else
 				{
-					bytes = File.getBytes(path);
+					bytes = Assets.getBytes(path);
 				}
 
 				if (bytes != null)
