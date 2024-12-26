@@ -390,11 +390,18 @@ class FlxPartialSound
 
 		function doWork(state:Dynamic)
 		{
-			if (!Assets.exists(path) || path == null)
+			if ((!FileSystem.exists(path) && !Assets.exists(path)) || path == null)
 				threadPool.sendError({path: path, promise: promise, error: "ERROR: Failed to load bytes for Asset " + path + " Because it dosen't exist."});
 			else
 			{
-				bytes = Assets.getBytes(path);
+				if (Assets.exists(path))
+				{
+					bytes = Assets.getBytes(path);
+				}
+				else
+				{
+					bytes = File.getBytes(path);
+				}
 
 				if (bytes != null)
 				{
