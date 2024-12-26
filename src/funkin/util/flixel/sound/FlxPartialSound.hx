@@ -140,7 +140,7 @@ class FlxPartialSound
 
 		return promise;
 		#else
-		if (!Assets.exists(path))
+		if (!FileSystem.exists(path) && !Assets.exists(path))
 		{
 			FlxG.log.warn("Could not find audio file for partial playback: " + path);
 			return null;
