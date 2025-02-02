@@ -11,7 +11,6 @@ import lime.net.HTTPRequest;
 import lime.net.HTTPRequestHeader;
 import openfl.media.Sound;
 import openfl.utils.Assets;
-
 using StringTools;
 
 class FlxPartialSound
@@ -115,19 +114,12 @@ class FlxPartialSound
 			return null;
 		}
 
-		var byteNum:Int = 0;
-
 		// on native, it will always be an ogg file, although eventually we might want to add WAV?
 		Assets.loadBytes(path).onComplete(function(data:openfl.utils.ByteArray)
 		{
 			var input = new BytesInput(data);
 
-			#if !hl
-			@:privateAccess
-			var size = input.b.length;
-			#else
 			var size = input.length;
-			#end
 
 			switch (Path.extension(path))
 			{
@@ -135,10 +127,9 @@ class FlxPartialSound
 					var oggBytesAsync = new Future<Bytes>(function()
 					{
 						var oggBytesIntro = Bytes.alloc(16 * 400);
-						while (byteNum < 16 * 400)
+						for (i in 0...oggBytesIntro.length)
 						{
-							oggBytesIntro.set(byteNum, input.readByte());
-							byteNum++;
+							oggBytesIntro.set(i, input.readByte());
 						}
 						return cleanOggBytes(oggBytesIntro);
 					}, true);
@@ -149,16 +140,13 @@ class FlxPartialSound
 						var oggRangeMax:Float = rangeEnd * size;
 						var oggBytesFull = Bytes.alloc(Std.int(oggRangeMax - oggRangeMin));
 
-						byteNum = 0;
-
 						input.position = Std.int(oggRangeMin);
 
 						var fullBytesAsync = new Future<Bytes>(function()
 						{
-							while (byteNum < oggRangeMax - oggRangeMin)
+							for (i in 0...oggBytesFull.length)
 							{
-								oggBytesFull.set(byteNum, input.readByte());
-								byteNum++;
+								oggBytesFull.set(i, input.readByte());
 							}
 
 							return cleanOggBytes(oggBytesFull);
