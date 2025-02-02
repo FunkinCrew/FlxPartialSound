@@ -119,10 +119,6 @@ class FlxPartialSound
 			FlxG.log.warn("Could not find audio file for partial playback: " + path);
 			return null;
 		}
-		
-		
-
-		var byteNum:Int = 0;
 
 		// on native, it will always be an ogg file, although eventually we might want to add WAV?
 		Assets.loadBytes(path).onComplete(function(data:openfl.utils.ByteArray)
@@ -137,14 +133,7 @@ class FlxPartialSound
 			promise.complete(sndShit);
 			#else
 			var input = new BytesInput(data);
-			
-
-			#if !hl
-			@:privateAccess
-			var size = input.b.length;
-			#else
 			var size = input.length;
-			#end
 
 			switch (Path.extension(path))
 			{
@@ -152,11 +141,9 @@ class FlxPartialSound
 					var oggBytesAsync = new Future<Bytes>(function()
 					{
 						var oggBytesIntro = Bytes.alloc(16 * 400);
-						while (byteNum < 16 * 400)
-
+						for (i in 0...oggBytesIntro.length)
 						{
-							oggBytesIntro.set(byteNum, input.readByte());
-							byteNum++;
+							oggBytesIntro.set(i, input.readByte());
 						}
 						return cleanOggBytes(oggBytesIntro);
 					}, true);
@@ -167,16 +154,13 @@ class FlxPartialSound
 						var oggRangeMax:Float = rangeEnd * size;
 						var oggBytesFull = Bytes.alloc(Std.int(oggRangeMax - oggRangeMin));
 
-						byteNum = 0;
-
 						input.position = Std.int(oggRangeMin);
 
 						var fullBytesAsync = new Future<Bytes>(function()
 						{
-							while (byteNum < oggRangeMax - oggRangeMin)
+							for (i in 0...oggBytesFull.length)
 							{
-								oggBytesFull.set(byteNum, input.readByte());
-								byteNum++;
+								oggBytesFull.set(i, input.readByte());
 							}
 
 							return cleanOggBytes(oggBytesFull);
