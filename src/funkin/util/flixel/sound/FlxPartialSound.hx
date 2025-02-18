@@ -23,6 +23,10 @@ import sys.FileSystem;
 import lime.media.vorbis.VorbisFile;
 #end
 
+#if lime_vorbis
+import lime.media.vorbis.VorbisFile;
+#end
+
 using StringTools;
 
 class FlxPartialSound
@@ -144,14 +148,21 @@ class FlxPartialSound
 
 		return promise;
 		#else
+
 		if (!FileSystem.exists(path) && !Assets.exists(path))
 		{
-
 			FlxG.log.warn("Could not find audio file for partial playback: " + path);
 			return null;
 		}
-		
-		
+
+		// streaming audio has been iffy on windows, need to investigate further
+		#if (lime_vorbis && !windows)
+		var vorb:VorbisFile = VorbisFile.fromFile(openfl.utils.Assets.getPath(path));
+		var audioBuffer:AudioBuffer = AudioBuffer.fromVorbisFile(vorb);
+		var snd = Sound.fromAudioBuffer(AudioBuffer.fromVorbisFile(vorb));
+		promise.complete(snd);
+
+		#else
 
 		var byteNum:Int = 0;
 
@@ -168,7 +179,7 @@ class FlxPartialSound
 			promise.complete(sndShit);
 			#else
 			var input = new BytesInput(data);
-			
+
 
 			#if !hl
 			@:privateAccess
@@ -236,6 +247,10 @@ class FlxPartialSound
 			#end // lime_vorbis check
 
 		});
+
+		#end
+
+
 
 		return promise;
 		#end // web/sys check
