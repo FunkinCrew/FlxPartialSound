@@ -12,11 +12,11 @@ import lime.net.HTTPRequestHeader;
 import openfl.media.Sound;
 import openfl.utils.Assets;
 
+using StringTools;
 #if lime_vorbis
 import lime.media.vorbis.VorbisFile;
 #end
 
-using StringTools;
 
 class FlxPartialSound
 {
@@ -206,6 +206,62 @@ class FlxPartialSound
 
 		return promise;
 		#end // web/sys check
+	}
+
+	/**
+	 * Similar to `partialLoadAndPlayFileRaw`, except instead of percentages, it uses milliseconds as range values.
+	 * @param path
+	 * @param rangeStart what millisecond of the song should it start at
+	 * @param rangeEnd what millisecond of the song should it end at
+	 * @return Future<Sound>
+	 */
+	public static function partialLoadAndPlayFileRaw(path:String, ?rangeStart:Int = 0, ?rangeEnd:Int = 1000):Future<Sound>
+	{
+		return partialLoadFromFileRaw(path, rangeStart, rangeEnd).future.onComplete(function(sound:Sound)
+		{
+			FlxG.sound.play(sound);
+		});
+	}
+
+	/**
+	 * Similar to `partialLoadFromFile`, except instead of percentages, it uses milliseconds as range values.
+	 * @param path
+	 * @param rangeStart what millisecond of the song should it start at
+	 * @param rangeEnd what millisecond of the song should it end at
+	 * @return Future<Sound>
+	 */
+	public static function partialLoadFromFileRaw(path:String, ?rangeStart:Int = 0, ?rangeEnd:Int = 1000, ?paddedIntro:Bool = false):Promise<Sound>
+	{
+		#if web
+		requestContentLength(path).onComplete(function(contentLength:Int)
+		{
+			return partialLoadFromFile(path, rangeStart / contentLength, rangeEnd / contentLength, paddedIntro);
+		});
+		#else
+		if (!Assets.exists(path))
+		{
+			FlxG.log.warn("Could not find audio file for partial playback: " + path);
+			return null;
+		}
+
+		// on native, it will always be an ogg file, although eventually we might want to add WAV?
+		Assets.loadBytes(path).onComplete(function(data:openfl.utils.ByteArray)
+		{
+			var input = new BytesInput(data);
+
+			#if !hl
+			@:privateAccess
+			var size = input.b.length;
+			#else
+			var size = input.length;
+			#end
+
+			return partialLoadFromFile(path, rangeStart / size, rangeEnd / size, paddedIntro);
+		});
+
+		#end // web/sys check
+
+		return null;
 	}
 
 	static function requestContentLength(path:String):Future<Int>
