@@ -12,11 +12,11 @@ import lime.net.HTTPRequestHeader;
 import openfl.media.Sound;
 import openfl.utils.Assets;
 
+using StringTools;
 #if lime_vorbis
 import lime.media.vorbis.VorbisFile;
 #end
 
-using StringTools;
 
 class FlxPartialSound
 {
@@ -206,6 +206,41 @@ class FlxPartialSound
 
 		return promise;
 		#end // web/sys check
+	}
+
+	/**
+	 * Similar to `partialLoadAndPlayFile`, except instead of percentages, it uses milliseconds as range values.
+	 * @param path
+	 * @param rangeStart what millisecond of the song should it start at
+	 * @param rangeEnd what millisecond of the song should it end at
+	 * @return Future<Sound>
+	 */
+	public static function partialLoadAndPlayFileRaw(path:String, ?rangeStart:Int = 0, ?rangeEnd:Int = 1000):Future<Sound>
+	{
+		return partialLoadFromFileRaw(path, rangeStart, rangeEnd).future.onComplete(function(sound:Sound)
+		{
+			FlxG.sound.play(sound);
+		});
+	}
+
+	/**
+	 * Similar to `partialLoadFromFile`, except instead of percentages, it uses milliseconds as range values.
+	 * @param path
+	 * @param rangeStart what millisecond of the song should it start at
+	 * @param rangeEnd what millisecond of the song should it end at
+	 * @return Future<Sound>
+	 */
+	public static function partialLoadFromFileRaw(path:String, ?rangeStart:Int = 0, ?rangeEnd:Int = 1000, ?paddedIntro:Bool = false):Promise<Sound>
+	{
+		if (!Assets.exists(path))
+		{
+
+			FlxG.log.warn("Could not find audio file for partial playback: " + path);
+			return null;
+		}
+		
+		var sound = Assets.getSound(path);
+		return partialLoadFromFile(path, rangeStart / sound.length, rangeEnd / sound.length, paddedIntro);
 	}
 
 	static function requestContentLength(path:String):Future<Int>
