@@ -209,7 +209,7 @@ class FlxPartialSound
 	}
 
 	/**
-	 * Similar to `partialLoadAndPlayFileRaw`, except instead of percentages, it uses milliseconds as range values.
+	 * Similar to `partialLoadAndPlayFile`, except instead of percentages, it uses milliseconds as range values.
 	 * @param path
 	 * @param rangeStart what millisecond of the song should it start at
 	 * @param rangeEnd what millisecond of the song should it end at
@@ -232,36 +232,15 @@ class FlxPartialSound
 	 */
 	public static function partialLoadFromFileRaw(path:String, ?rangeStart:Int = 0, ?rangeEnd:Int = 1000, ?paddedIntro:Bool = false):Promise<Sound>
 	{
-		#if web
-		requestContentLength(path).onComplete(function(contentLength:Int)
-		{
-			return partialLoadFromFile(path, rangeStart / contentLength, rangeEnd / contentLength, paddedIntro);
-		});
-		#else
 		if (!Assets.exists(path))
 		{
+
 			FlxG.log.warn("Could not find audio file for partial playback: " + path);
 			return null;
 		}
-
-		// on native, it will always be an ogg file, although eventually we might want to add WAV?
-		Assets.loadBytes(path).onComplete(function(data:openfl.utils.ByteArray)
-		{
-			var input = new BytesInput(data);
-
-			#if !hl
-			@:privateAccess
-			var size = input.b.length;
-			#else
-			var size = input.length;
-			#end
-
-			return partialLoadFromFile(path, rangeStart / size, rangeEnd / size, paddedIntro);
-		});
-
-		#end // web/sys check
-
-		return null;
+		
+		var sound = Assets.getSound(path);
+		return partialLoadFromFile(path, rangeStart / sound.length, rangeEnd / sound.length, paddedIntro);
 	}
 
 	static function requestContentLength(path:String):Future<Int>
