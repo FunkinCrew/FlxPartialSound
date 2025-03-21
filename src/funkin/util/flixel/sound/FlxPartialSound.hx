@@ -124,18 +124,18 @@ class FlxPartialSound
 
 		var byteNum:Int = 0;
 
+		#if lime_vorbis
+		// loading it via VorbisFile will set the NativeAudioSource stuff to use streaming audio to decode the ogg
+		// rather than any manual decoding / parsing us or lime needs to do
+		var vorbisFile:VorbisFile = VorbisFile.fromFile(path);
+		var audioBuffer:AudioBuffer = AudioBuffer.fromVorbisFile(vorbisFile);
+		var sndShit = Sound.fromAudioBuffer(audioBuffer);
+		Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, sndShit);
+		promise.complete(sndShit);
+		#else
 		// on native, it will always be an ogg file, although eventually we might want to add WAV?
 		Assets.loadBytes(path).onComplete(function(data:openfl.utils.ByteArray)
 		{
-			#if lime_vorbis
-			// loading it via VorbisFile will set the NativeAudioSource stuff to use streaming audio to decode the ogg
-			// rather than any manual decoding / parsing us or lime needs to do
-			var vorbisFile:VorbisFile = VorbisFile.fromBytes(data);
-			var audioBuffer:AudioBuffer = AudioBuffer.fromVorbisFile(vorbisFile);
-			var sndShit = Sound.fromAudioBuffer(audioBuffer);
-			Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, sndShit);
-			promise.complete(sndShit);
-			#else
 			var input = new BytesInput(data);
 			
 
@@ -200,9 +200,9 @@ class FlxPartialSound
 				default:
 					promise.error("Unsupported file type: " + Path.extension(path));
 			}
-			#end // lime_vorbis check
 
 		});
+		#end // lime_vorbis check
 
 		return promise;
 		#end // web/sys check
