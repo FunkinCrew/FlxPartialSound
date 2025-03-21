@@ -9,5 +9,6 @@
 			"source.sortImports": "explicit"
 		}
 	},
-	"haxe.enableExtendedIndentation": true
+	"haxe.enableExtendedIndentation": true,
+	"lime.projectFile": "example/Project.xml"
 }
