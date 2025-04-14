@@ -127,7 +127,7 @@ class FlxPartialSound
 		#if lime_vorbis
 		// loading it via VorbisFile will set the NativeAudioSource stuff to use streaming audio to decode the ogg
 		// rather than any manual decoding / parsing us or lime needs to do
-		var vorbisFile:VorbisFile = VorbisFile.fromFile(path);
+		var vorbisFile:VorbisFile = VorbisFile.fromFile(Assets.getPath(path));
 		var audioBuffer:AudioBuffer = AudioBuffer.fromVorbisFile(vorbisFile);
 		var sndShit = Sound.fromAudioBuffer(audioBuffer);
 		Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, sndShit);
