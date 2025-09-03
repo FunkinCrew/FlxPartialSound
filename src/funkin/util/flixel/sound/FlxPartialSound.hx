@@ -59,15 +59,6 @@ class FlxPartialSound
 		var promise:Promise<Sound> = new Promise<Sound>();
 		var cacheName:String = audioPath + ".partial-" + rangeStart + "-" + rangeEnd;
 
-		#if sys
-		if (FileSystem.exists(getCacheDir() + cacheName.replace(':', '/') + '.ogg') && !Assets.cache.hasSound(cacheName))
-		{
-			var oggFullBytes:Bytes = File.getBytes(getCacheDir() + cacheName.replace(':', '/') + '.ogg');
-			var audioBuffer:AudioBuffer = parseBytesOgg(oggFullBytes, true);
-			Assets.cache.setSound(cacheName, Sound.fromAudioBuffer(audioBuffer));
-		}
-		#end
-
 		if (Assets.cache.hasSound(cacheName))
 		{
 			promise.complete(Assets.cache.getSound(cacheName));
@@ -144,12 +135,10 @@ class FlxPartialSound
 							oggFullBytes.blit(oggBytesIntro.length, fullAssOgg, 0, fullAssOgg.length);
 							input.close();
 
-							FileSystem.createDirectory(Path.directory(getCacheDir() + audioPath.replace(':', '/')));
-							File.saveBytes(getCacheDir() + cacheName.replace(':', '/') + '.ogg', oggFullBytes);
-
 							var audioBuffer:AudioBuffer = parseBytesOgg(oggFullBytes, true);
+
 							var sndShit = Sound.fromAudioBuffer(audioBuffer);
-							Assets.cache.setSound(cacheName, sndShit);
+							Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, sndShit);
 							promise.complete(sndShit);
 						});
 					});
@@ -163,7 +152,7 @@ class FlxPartialSound
 		return promise;
 	}
 
-	static function partialLoadHttp(audioPath:String, promise:Promise<Sound>, rangeStart, rangeEnd, cacheName)
+	static function partialLoadHttp(audioPath:String, promise:Promise<Sound>, rangeStart:Float, rangeEnd:Float, cacheName:String)
 	{
 		requestContentLength(audioPath).onComplete(function(contentLength:Int)
 		{
@@ -439,56 +428,4 @@ class FlxPartialSound
 		return promise.future;
 	}
 	#end
-
-	/**
-	 * @return String the platforms temp/cache directory.
-	 */
-	static function getCacheDir():String
-	{
-		#if sys
-		#if windows
-		return Path.addTrailingSlash(Sys.getEnv("TEMP"));
-		#elseif (android || iphoneos)
-		return Path.addTrailingSlash(PathTool.getCacheDirectory());
-		#elseif mac
-		return Path.addTrailingSlash(Sys.getEnv("TMPDIR"));
-		#elseif linux
-		return "/tmp/";
-		#else
-		return ".cache/";
-		#end
-		#end
-	}
 }
-
-#if (android || (iphoneos && cpp))
-#if (iphoneos && cpp)
-@:buildXml('<include name="${haxelib:FlxPartialSound}/extern/Build.xml" />')
-@:include('PathTool.hpp')
-@:unreflective
-#end
-private #if (iphoneos && cpp) extern #end class PathTool
-{
-	#if (iphoneos && cpp)
-	@:native('getCacheDirectory')
-	static function getCacheDirectory():cpp.ConstCahrStar;
-	#end
-
-	#if android
-	@:noCompletion
-	public static inline function getCacheDirectory():String
-	{
-		var context:Dynamic = lime.system.JNI.createStaticField('org/libsdl/app/SDL', 'mContext', 'Landroid/content/Context;').get();
-		var dir:Dynamic = lime.system.JNI.callMember(lime.system.JNI.createMemberMethod('android/content/Context', 'getCacheDir', '()Ljava/io/File;'),
-			context, []);
-		return getAbsolutePath(dir);
-	}
-
-	@:noCompletion
-	private static inline function getAbsolutePath(file:Dynamic):String
-	{
-		return lime.system.JNI.callMember(lime.system.JNI.createMemberMethod('java/io/File', 'getAbsolutePath', '()Ljava/lang/String;'), file, []);
-	}
-	#end
-}
-#end
