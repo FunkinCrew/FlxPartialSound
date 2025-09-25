@@ -15,11 +15,9 @@ import openfl.utils.Assets;
 import lime.system.ThreadPool;
 #end
 #if sys
-import sys.io.File;
 import sys.FileSystem;
+import sys.io.File;
 #end
-
-using StringTools;
 
 class FlxPartialSound
 {
@@ -84,10 +82,9 @@ class FlxPartialSound
 						var mp3Data = parseBytesMp3(data, startByte);
 						audioBuffer = mp3Data.buf;
 
-
 						var snd = Sound.fromAudioBuffer(audioBuffer);
 						Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, snd);
-						PartialSoundMetadata.instance.set(path + rangeStart, {kbps:mp3Data.kbps, introOffsetMs:mp3Data.introLengthMs});
+						PartialSoundMetadata.instance.set(path + rangeStart, {kbps: mp3Data.kbps, introOffsetMs: mp3Data.introLengthMs});
 						promise.complete(snd);
 
 					case "ogg":
@@ -122,19 +119,11 @@ class FlxPartialSound
 			return null;
 		}
 
-		var byteNum:Int = 0;
-
 		// on native, it will always be an ogg file, although eventually we might want to add WAV?
 		loadBytes(path).onComplete(function(data:Bytes)
 		{
 			var input = new BytesInput(data);
-
-			#if !hl
-			@:privateAccess
-			var size = input.b.length;
-			#else
 			var size = input.length;
-			#end
 
 			switch (Path.extension(path))
 			{
@@ -142,10 +131,9 @@ class FlxPartialSound
 					var oggBytesAsync = new Future<Bytes>(function()
 					{
 						var oggBytesIntro = Bytes.alloc(16 * 400);
-						while (byteNum < 16 * 400)
+						for (i in 0...oggBytesIntro.length)
 						{
-							oggBytesIntro.set(byteNum, input.readByte());
-							byteNum++;
+							oggBytesIntro.set(i, input.readByte());
 						}
 						return cleanOggBytes(oggBytesIntro);
 					}, true);
@@ -156,16 +144,13 @@ class FlxPartialSound
 						var oggRangeMax:Float = rangeEnd * size;
 						var oggBytesFull = Bytes.alloc(Std.int(oggRangeMax - oggRangeMin));
 
-						byteNum = 0;
-
 						input.position = Std.int(oggRangeMin);
 
 						var fullBytesAsync = new Future<Bytes>(function()
 						{
-							while (byteNum < oggRangeMax - oggRangeMin)
+							for (i in 0...oggBytesFull.length)
 							{
-								oggBytesFull.set(byteNum, input.readByte());
-								byteNum++;
+								oggBytesFull.set(i, input.readByte());
 							}
 
 							return cleanOggBytes(oggBytesFull);
@@ -270,7 +255,6 @@ class FlxPartialSound
 
 					bitrateAvg[bitrate] = bitrateAvg.exists(bitrate) ? bitrateAvg.get(bitrate) + 1 : 1;
 
-
 					if (frameSyncBytePos == -1)
 						frameSyncBytePos = byte;
 
@@ -365,7 +349,11 @@ class FlxPartialSound
 		function doWork(state:Dynamic, workOutput:Dynamic)
 		{
 			if (!Assets.exists(path) || path == null)
-				threadPool.sendError({path: path, promise: promise, error: "ERROR: Failed to load bytes for Asset " + path + " Because it dosen't exist."});
+				threadPool.sendError({
+					path: path,
+					promise: promise,
+					error: "ERROR: Failed to load bytes for Asset " + path + " Because it dosen't exist."
+				});
 			else
 			{
 				bytes = Assets.getBytes(path);
