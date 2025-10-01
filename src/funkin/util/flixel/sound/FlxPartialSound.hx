@@ -371,7 +371,7 @@ class FlxPartialSound
 		var threadPool = new ThreadPool();
 		var bytes:Null<Bytes> = null;
 
-		function doWork(state:Dynamic)
+		function doWork(state:Dynamic, workOutput:Dynamic)
 		{
 			if ((!FileSystem.exists(path) && !Assets.exists(path)) || path == null)
 				threadPool.sendError({path: path, promise: promise, error: "ERROR: Failed to load bytes for Asset " + path + " Because it dosen't exist."});
@@ -418,12 +418,11 @@ class FlxPartialSound
 			promise.complete(bytes);
 		}
 
-		threadPool.doWork.add(doWork);
 		threadPool.onProgress.add(onProgress);
 		threadPool.onComplete.add(onComplete);
 		threadPool.onError.add((state:Dynamic) -> promise.error({error: state.error, responseData: null}));
 
-		threadPool.queue({});
+		threadPool.queue(doWork);
 
 		return promise.future;
 	}
