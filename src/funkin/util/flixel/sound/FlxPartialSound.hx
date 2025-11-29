@@ -138,7 +138,7 @@ class FlxPartialSound
 							var audioBuffer:AudioBuffer = parseBytesOgg(oggFullBytes, true);
 
 							var sndShit = Sound.fromAudioBuffer(audioBuffer);
-							Assets.cache.setSound(path + ".partial-" + rangeStart + "-" + rangeEnd, sndShit);
+							Assets.cache.setSound(cacheName, sndShit);
 							promise.complete(sndShit);
 						});
 					});
