@@ -18,6 +18,21 @@ import openfl.utils.Assets;
 
 class FlxPartialSound
 {
+	public static var cache:Map<String, Sound> = [];
+
+	public static function clearCache():Void
+	{
+		for (key in cache.keys())
+		{
+			var sound:Null<Sound> = cache.get(key);
+			if (sound != null)
+			{
+				Assets.cache.removeSound(key);
+				cache.remove(key);
+			}
+		}
+	}
+
 	/**
 	 * Loads partial sound bytes from a file, returning a Sound object.
 	 * Will play the sound after loading via FlxG.sound.play()
@@ -82,6 +97,7 @@ class FlxPartialSound
 		{
 			var sndShit = Sound.fromAudioBuffer(audioBuffer);
 			Assets.cache.setSound(cacheName, sndShit);
+			cache.set(cacheName, sndShit);
 			promise.complete(sndShit);
 		});
 
@@ -148,8 +164,9 @@ class FlxPartialSound
 
 		threadPool.onComplete.add(function(data:Dynamic):Void
 		{
-			var sndShit = Sound.fromAudioBuffer(data.audioBuffer);
+			var sndShit = Sound.fromAudioBuffer(audioBuffer);
 			Assets.cache.setSound(cacheName, sndShit);
+			cache.set(cacheName, sndShit);
 			promise.complete(sndShit);
 		});
 
