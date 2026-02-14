@@ -18,12 +18,13 @@ import lime.system.ThreadPool;
 import sys.io.File;
 import sys.FileSystem;
 #end
-#if lime_vorbis
-import lime.media.vorbis.VorbisFile;
+#if lime_funkin
+import haxe.Int64;
+import lime.media.AudioBuffer;
+import lime.media.AudioDecoder;
+import lime.utils.UInt8Array;
 #end
-#if lime_vorbis
-import lime.media.vorbis.VorbisFile;
-#end
+
 
 using StringTools;
 
@@ -74,12 +75,48 @@ class FlxPartialSound
 			return null;
 		}
 
-		// streaming audio has been iffy on windows, need to investigate further
-		#if (lime_vorbis && !windows)
-		var vorb:VorbisFile = VorbisFile.fromFile(openfl.utils.Assets.getPath(audioPath));
-		var snd = Sound.fromAudioBuffer(AudioBuffer.fromVorbisFile(vorb));
-		promise.complete(snd);
+		#if lime_funkin
+
+		var promiseGotDecoder:Promise<AudioDecoder> = new Promise<AudioDecoder>();
+		promiseGotDecoder.future.onComplete(function(audioDecoder:AudioDecoder)
+		{
+			if (audioDecoder == null) promise.error("Unsupported file type: " + Path.extension(audioPath));
+
+			var total = audioDecoder.total();
+			var totalFloat = (total.high * 4294967296.0 + (total.low >>> 0));
+			var audioBuffer = AudioBuffer.fromDecoder(audioDecoder, true, false);
+			var word = audioBuffer.bitsPerSample >> 3;
+
+			audioBuffer.data = new UInt8Array(Std.int(totalFloat * (rangeEnd - rangeStart)) * audioBuffer.channels * word);
+			audioBuffer.decoder = null;
+
+			audioDecoder.seek(Int64.fromFloat(totalFloat * rangeStart));
+			audioDecoder.decode(audioBuffer.data.buffer, 0, audioBuffer.data.byteLength, word);
+			audioDecoder.dispose();
+
+			var sndShit = Sound.fromAudioBuffer(audioBuffer);
+			Assets.cache.setSound(cacheName, sndShit);
+			promise.complete(sndShit);
+		});
+
+		if (FileSystem.exists(audioPath))
+		{
+			promiseGotDecoder.complete(AudioDecoder.fromFile(audioPath));
+		}
+		else if (FileSystem.exists(Assets.getPath(audioPath)))
+		{
+			promiseGotDecoder.complete(AudioDecoder.fromFile(Assets.getPath(audioPath)));
+		}
+		else
+		{
+			loadBytes(audioPath).onComplete(function(data:Bytes)
+			{
+				promiseGotDecoder.complete(AudioDecoder.fromBytes(data));
+			});
+		}
+
 		#else
+
 		var byteNum:Int = 0;
 		// on native, it will always be an ogg file, although eventually we might want to add WAV?
 		loadBytes(audioPath).onComplete(function(data:Bytes)
@@ -147,6 +184,7 @@ class FlxPartialSound
 					promise.error("Unsupported file type: " + Path.extension(audioPath));
 			}
 		});
+
 		#end
 		#end
 		return promise;
