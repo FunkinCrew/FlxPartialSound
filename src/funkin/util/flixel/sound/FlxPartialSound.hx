@@ -1,31 +1,20 @@
 package funkin.util.flixel.sound;
 
 import flixel.FlxG;
+import haxe.Int64;
 import haxe.io.Bytes;
-import haxe.io.BytesInput;
 import haxe.io.Path;
 import lime.app.Future;
 import lime.app.Promise;
+#if (js && html5 && lime_howlerjs)
+import lime.media.howlerjs.Howl;
+#end
 import lime.media.AudioBuffer;
-import lime.net.HTTPRequest;
-import lime.net.HTTPRequestHeader;
+import lime.media.AudioDecoder;
+import lime.system.ThreadPool;
+import lime.utils.UInt8Array;
 import openfl.media.Sound;
 import openfl.utils.Assets;
-#if (target.threaded)
-import lime.system.ThreadPool;
-#end
-#if sys
-import sys.io.File;
-import sys.FileSystem;
-#end
-#if lime_vorbis
-import lime.media.vorbis.VorbisFile;
-#end
-#if lime_vorbis
-import lime.media.vorbis.VorbisFile;
-#end
-
-using StringTools;
 
 class FlxPartialSound
 {
@@ -62,369 +51,114 @@ class FlxPartialSound
 		if (Assets.cache.hasSound(cacheName))
 		{
 			promise.complete(Assets.cache.getSound(cacheName));
+
 			return promise;
 		}
 
-		#if web
-		partialLoadHttp(audioPath, promise, rangeStart, rangeEnd, cacheName);
-		#else
-		if (!FileSystem.exists(audioPath) && !Assets.exists(audioPath))
-		{
-			FlxG.log.warn("Could not find audio file for partial playback: " + audioPath);
-			return null;
-		}
-
-		// streaming audio has been iffy on windows, need to investigate further
-		#if (lime_vorbis && !windows)
-		var vorb:VorbisFile = VorbisFile.fromFile(openfl.utils.Assets.getPath(audioPath));
-		var snd = Sound.fromAudioBuffer(AudioBuffer.fromVorbisFile(vorb));
-		promise.complete(snd);
-		#else
-		var byteNum:Int = 0;
-		// on native, it will always be an ogg file, although eventually we might want to add WAV?
-		loadBytes(audioPath).onComplete(function(data:Bytes)
-		{
-			var input = new BytesInput(data);
-
-			#if !hl
-			@:privateAccess
-			var size = input.b.length;
-			#else
-			var size = input.length;
-			#end
-
-			switch (Path.extension(audioPath))
-			{
-				case "ogg":
-					var oggBytesAsync = new Future<Bytes>(function()
-					{
-						var oggBytesIntro = Bytes.alloc(16 * 400);
-						while (byteNum < 16 * 400)
-						{
-							oggBytesIntro.set(byteNum, input.readByte());
-							byteNum++;
-						}
-						return cleanOggBytes(oggBytesIntro);
-					}, true);
-
-					oggBytesAsync.onComplete(function(oggBytesIntro:Bytes)
-					{
-						var oggRangeMin:Float = rangeStart * size;
-						var oggRangeMax:Float = rangeEnd * size;
-						var oggBytesFull = Bytes.alloc(Std.int(oggRangeMax - oggRangeMin));
-
-						byteNum = 0;
-
-						input.position = Std.int(oggRangeMin);
-
-						var fullBytesAsync = new Future<Bytes>(function()
-						{
-							while (byteNum < oggRangeMax - oggRangeMin)
-							{
-								oggBytesFull.set(byteNum, input.readByte());
-								byteNum++;
-							}
-
-							return cleanOggBytes(oggBytesFull);
-						}, true);
-
-						fullBytesAsync.onComplete(function(fullAssOgg:Bytes)
-						{
-							var oggFullBytes = Bytes.alloc(oggBytesIntro.length + fullAssOgg.length);
-							oggFullBytes.blit(0, oggBytesIntro, 0, oggBytesIntro.length);
-							oggFullBytes.blit(oggBytesIntro.length, fullAssOgg, 0, fullAssOgg.length);
-							input.close();
-
-							var audioBuffer:AudioBuffer = parseBytesOgg(oggFullBytes, true);
-
-							var sndShit = Sound.fromAudioBuffer(audioBuffer);
-							Assets.cache.setSound(cacheName, sndShit);
-							promise.complete(sndShit);
-						});
-					});
-
-				default:
-					promise.error("Unsupported file type: " + Path.extension(audioPath));
-			}
-		});
+		#if (lime_funkin && (js && html5) && lime_howlerjs)
+		partialLoadHowlerSprite(cacheName, promise, audioPath, rangeStart, rangeEnd);
+		#elseif (lime_funkin && (lime_cffi && !macro))
+		partialLoadAudioDecoder(cacheName, promise, audioPath, rangeStart, rangeEnd);
 		#end
-		#end
+
 		return promise;
 	}
 
-	static function partialLoadHttp(audioPath:String, promise:Promise<Sound>, rangeStart:Float, rangeEnd:Float, cacheName:String)
+	#if (lime_funkin && (js && html5) && lime_howlerjs)
+	@:access(lime.media.AudioBuffer)
+	@:noCompletion
+	private static function partialLoadHowlerSprite(cacheName:String, promise:Promise<Sound>, audioPath:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Void
 	{
-		requestContentLength(audioPath).onComplete(function(contentLength:Int)
+		// TODO: If the library that contains the sound isnt preloaded, this fails, so for now, just force load it
+		// if (!Assets.exists(audioPath, SOUND))
+		// {
+		// 	trace("Could not find audio file for partial playback: " + audioPath);
+		// 	return;
+		// }
+
+		var promiseGotHowlerBuffer:Promise<AudioBuffer> = new Promise<AudioBuffer>();
+
+		promiseGotHowlerBuffer.future.onComplete(function(audioBuffer:AudioBuffer):Void
 		{
-			var startByte:Int = Std.int(contentLength * rangeStart);
-			var endByte:Int = Std.int(contentLength * rangeEnd);
-			var byteRange:String = startByte + '-' + endByte;
-
-			// for ogg files, we want to get a certain amount of header info stored at the beginning of the file
-			// which I believe helps initiate the audio stream properly for any section of audio
-			// 0-6400 is a random guess, could be fuckie with other audio
-			if (Path.extension(audioPath) == "ogg")
-				byteRange = '0-' + Std.string(16 * 400);
-
-			var rangeHeader:HTTPRequestHeader = new HTTPRequestHeader("Range", "bytes=" + byteRange);
-			var http = new HTTPRequest<Bytes>(audioPath);
-			http.headers.push(rangeHeader);
-
-			http.load().onComplete(function(data:Bytes)
-			{
-				switch (Path.extension(audioPath))
-				{
-					case "mp3":
-						var mp3Data = parseBytesMp3(data, startByte);
-						var snd = Sound.fromAudioBuffer(mp3Data.buf);
-						Assets.cache.setSound(cacheName, snd);
-						PartialSoundMetadata.instance.set(audioPath + rangeStart, {kbps: mp3Data.kbps, introOffsetMs: mp3Data.introLengthMs});
-						promise.complete(snd);
-
-					case "ogg":
-						rangeHeader = new HTTPRequestHeader("Range", "bytes=" + startByte + '-' + endByte);
-
-						var httpFull = new HTTPRequest<Bytes>(audioPath);
-						httpFull.headers.push(rangeHeader);
-						httpFull.load().onComplete(function(fullOggData)
-						{
-							var cleanIntroBytes = cleanOggBytes(data);
-							var cleanFullBytes = cleanOggBytes(fullOggData);
-							var fullBytes = Bytes.alloc(cleanIntroBytes.length + cleanFullBytes.length);
-							fullBytes.blit(0, cleanIntroBytes, 0, cleanIntroBytes.length);
-							fullBytes.blit(cleanIntroBytes.length, cleanFullBytes, 0, cleanFullBytes.length);
-
-							var snd = Sound.fromAudioBuffer(parseBytesOgg(fullBytes, true));
-							Assets.cache.setSound(cacheName, snd);
-							promise.complete(snd);
-						});
-
-					default:
-						promise.error("Unsupported file type: " + Path.extension(audioPath));
-				}
-			});
-		});
-	}
-
-	static function requestContentLength(path:String):Future<Int>
-	{
-		var promise:Promise<Int> = new Promise<Int>();
-		var httpFileLength = new HTTPRequest<Bytes>(path);
-		httpFileLength.headers.push(new HTTPRequestHeader("Accept-Ranges", "bytes"));
-		httpFileLength.method = HEAD;
-		httpFileLength.enableResponseHeaders = true;
-
-		httpFileLength.load(path).onComplete(_ ->
-		{
-			var contentLengthHeader:HTTPRequestHeader = httpFileLength.responseHeaders.filter(function(header:HTTPRequestHeader)
-			{
-				return header.name == "content-length";
-			})[0];
-
-			promise.complete(Std.parseInt(contentLengthHeader.value));
+			var sndShit = Sound.fromAudioBuffer(audioBuffer);
+			Assets.cache.setSound(cacheName, sndShit);
+			promise.complete(sndShit);
 		});
 
-		return promise.future;
-	}
+		var audioBuffer = new AudioBuffer();
 
-	/**
-	 * Parses bytes from a partial mp3 file, and returns an AudioBuffer with proper sound data.
-	 * @param data bytes from an MP3 file
-	 * @param startByte how many bytes into the original audio are we reading from, to use to calculate extra metadata (introLengthMs)
-	 * @return {buf:AudioBuffer, kbps:Int, introLengthMs:Int} AudioBuffer, kbps of the audio, and the length of the intro in milliseconds
-	 */
-	public static function parseBytesMp3(data:Bytes, ?startByte:Int = 0):{buf:AudioBuffer, ?kbps:Int, ?introLengthMs:Int}
-	{
-		// need to find the first "frame" of the mp3 data, which would be a byte with the value 255
-		// followed by a byte with the value where the value is 251, 250, or 243
-		// reading
-		// http://www.multiweb.cz/twoinches/mp3inside.htm#FrameHeaderA
-		// http://mpgedit.org/mpgedit/mpeg_format/MP3Format.html
-		// we start it as -1 so we can check the very first frame bytes (byte 0)
-		var frameSyncBytePos = -1;
-		// unsure if we need to keep track of the last frame, but doing so just in case
-		var lastFrameSyncBytePos = 0;
+		audioBuffer.__srcHowlerDefaultSprite = "main";
 
-		// BytesInput to read front to back of the data easier
-		var byteInput:BytesInput = new BytesInput(data);
-
-		// How many mp3 frames we found
-		var frameCount:Int = 0;
-
-		var bitrateAvg:Map<Int, Int> = new Map();
-
-		for (byte in 0...data.length)
+		function onHowlerLoad():Void
 		{
-			var byteValue = byteInput.readByte();
-			var nextByte = data.get(byte + 1);
+			var duration = audioBuffer.__srcHowl.duration();
+			var start = Math.round(duration * rangeStart * 1000);
+			var end = Math.round(duration * rangeEnd * 1000);
 
-			// the start of a frame sync, which should be a byte with all bits set to 1 (255)
-			if (byteValue == 255)
+			untyped audioBuffer.__srcHowl._sprite = {main: [start, end - start]};
+
+			promiseGotHowlerBuffer.complete(audioBuffer);
+		}
+
+		// TODO: If the library that contains the sound isnt preloaded, this fails, so for now, just force load it
+		// audioBuffer.__srcHowl = new Howl({src: [Assets.getPath(audioPath)], preload: true, onload: onHowlerLoad});
+		audioBuffer.__srcHowl = new Howl({src: [audioPath], preload: true, onload: onHowlerLoad});
+	}
+	#end
+
+	#if (lime_funkin && (lime_cffi && !macro))
+	private static function partialLoadAudioDecoder(cacheName:String, promise:Promise<Sound>, audioPath:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Void
+	{
+		if (!Assets.exists(audioPath, SOUND))
+		{
+			trace("Could not find audio file for partial playback: " + audioPath);
+			return;
+		}
+
+		var threadPool:ThreadPool = new ThreadPool();
+
+		function doWork(state:Dynamic, output:Dynamic):Void
+		{
+			var audioDecoder:AudioDecoder = AudioDecoder.fromFile(Assets.getPath(audioPath));
+
+			if (audioDecoder == null)
 			{
-				var mpegVersion = (nextByte & 0x18) >> 3; // gets the 4th and 5th bits of the next byte, for MPEG version
-				var nextFrameSync = (nextByte & 0xE0) >> 5; // gets the first 3 bits of the next byte, which should be 111
-
-				// i stole the values from "nextByte" from how Lime checks for valid mp3 frame data
-				if (nextFrameSync == 7 && (nextByte == 251 || nextByte == 250 || nextByte == 243))
-				{
-					frameCount++;
-
-					var byte2 = data.get(byte + 2);
-					var bitrateIndex = (byte2 & 0xF0) >> 4;
-					var bitrateArray = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320];
-					var bitrate = bitrateArray[bitrateIndex];
-
-					var samplingRateIndex = (byte2 & 0x0C) >> 2;
-					var sampleRateArray = [44100, 48000, 32000];
-					var sampleRate = sampleRateArray[samplingRateIndex];
-
-					bitrateAvg[bitrate] = bitrateAvg.exists(bitrate) ? bitrateAvg.get(bitrate) + 1 : 1;
-
-					if (frameSyncBytePos == -1)
-						frameSyncBytePos = byte;
-
-					// assume this byte is the last frame sync byte we'll find
-					lastFrameSyncBytePos = byte;
-				}
+				audioDecoder = AudioDecoder.fromBytes(Assets.getBytes(audioPath));
 			}
-		}
 
-		// what we'll actually return
-		var outputInfo:Dynamic = {};
-
-		var mostCommonBitrate = 0;
-		for (bitrate in bitrateAvg.keys())
-		{
-			if (bitrateAvg.get(bitrate) > bitrateAvg.get(mostCommonBitrate))
-				mostCommonBitrate = bitrate;
-		}
-
-		// bitrate is in bits rather than kilobits, so we're getting the milliseconds of the intro
-		// also since it's in bits, we divide by 8 to get bytes
-		var introLengthMs:Int = Math.round(startByte / (mostCommonBitrate / 8));
-
-		// length of an mp3 frame in milliseconds
-		var frameLengthMs:Float = 26;
-
-		// how many frames we need to pad the intro with
-		var framesNeeded = Math.floor(introLengthMs / frameLengthMs);
-
-		outputInfo.introLengthMs = introLengthMs;
-		outputInfo.kbps = mostCommonBitrate;
-
-		var bytesLength = lastFrameSyncBytePos - frameSyncBytePos;
-		var bufferBytes = Bytes.alloc(bytesLength + 1);
-		bufferBytes.blit(0, data, frameSyncBytePos, bytesLength);
-
-		outputInfo.buf = AudioBuffer.fromBytes(bufferBytes);
-		return outputInfo;
-	}
-
-	public static function parseBytesOgg(data:Bytes, skipCleaning:Bool = false):AudioBuffer
-	{
-		var cleanedBytes = skipCleaning ? data : cleanOggBytes(data);
-		return AudioBuffer.fromBytes(cleanedBytes);
-	}
-
-	static function cleanOggBytes(data:Bytes):Bytes
-	{
-		var byteInput:BytesInput = new BytesInput(data);
-		var firstByte:Int = -1;
-		var lastByte:Int = -1;
-		var oggString:String = "";
-
-		for (byte in 0...data.length)
-		{
-			var byteValue = byteInput.readByte();
-
-			if (byteValue == "O".code || byteValue == "g".code || byteValue == "S".code)
-				oggString += String.fromCharCode(byteValue);
-			else
-				oggString = "";
-
-			if (oggString == "OggS")
+			if (audioDecoder == null)
 			{
-				if (firstByte == -1)
-				{
-					firstByte = byte - 3;
-					data.set(byte + 2, 2);
-				}
-
-				lastByte = byte - 3;
-
-				var version = data.get(byte + 1);
-				var headerType = data.get(byte + 2);
-			}
-		}
-
-		var byteLength = lastByte - firstByte;
-		var output = Bytes.alloc(byteLength + 1);
-		output.blit(0, data, firstByte, byteLength);
-
-		return output;
-	}
-
-	#if (target.threaded)
-	public static function loadBytes(path:String):Future<Bytes>
-	{
-		var promise = new Promise<Bytes>();
-		var threadPool = new ThreadPool();
-		var bytes:Null<Bytes> = null;
-
-		function doWork(state:Dynamic, workOutput:Dynamic)
-		{
-			if ((!FileSystem.exists(path) && !Assets.exists(path)) || path == null)
-				threadPool.sendError({path: path, promise: promise, error: "ERROR: Failed to load bytes for Asset " + path + " Because it dosen't exist."});
-			else
-			{
-				if (FileSystem.exists(path))
-				{
-					bytes = File.getBytes(path);
-				}
-				else
-				{
-					bytes = Assets.getBytes(path);
-				}
-
-				if (bytes != null)
-				{
-					threadPool.sendProgress({
-						path: path,
-						promise: promise,
-						bytesLoaded: bytes.length,
-						bytesTotal: bytes.length
-					});
-
-					threadPool.sendComplete({path: path, promise: promise, result: bytes});
-				}
-				else
-				{
-					threadPool.sendError({path: path, promise: promise, error: "Cannot load file: " + path});
-				}
-			}
-		}
-
-		function onProgress(state:Dynamic)
-		{
-			if (promise.isComplete || promise.isError)
+				promise.error("Unsupported file type: " + Path.extension(audioPath));
 				return;
-			promise.progress(state.bytesLoaded, state.bytesTotal);
+			}
+
+			var totolFrames:Int = Int64.toInt(audioDecoder.total());
+			var framesStart:Int = Std.int(totolFrames * rangeStart);
+			var framesEnd:Int = Std.int(totolFrames * rangeEnd);
+
+			audioDecoder.seek(framesStart);
+
+			var audioBuffer:AudioBuffer = new AudioBuffer();
+			audioBuffer.sampleRate = audioDecoder.sampleRate;
+			audioBuffer.channels = audioDecoder.channels;
+			audioBuffer.dataFormat = S16;
+			audioBuffer.data = UInt8Array.fromBytes(audioDecoder.decode(framesEnd - framesStart, audioBuffer.dataFormat));
+			threadPool.sendComplete({audioBuffer: audioBuffer});
 		}
 
-		function onComplete(state:Dynamic)
+		threadPool.onComplete.add(function(data:Dynamic):Void
 		{
-			if (promise.isError)
-				return;
-			promise.complete(bytes);
-		}
+			var sndShit = Sound.fromAudioBuffer(data.audioBuffer);
+			Assets.cache.setSound(cacheName, sndShit);
+			promise.complete(sndShit);
+		});
 
-		threadPool.onProgress.add(onProgress);
-		threadPool.onComplete.add(onComplete);
-		threadPool.onError.add((state:Dynamic) -> promise.error({error: state.error, responseData: null}));
+		threadPool.onError.add(function(_):Void
+		{
+			promise.error(_);
+		});
 
 		threadPool.queue(doWork);
-
-		return promise.future;
 	}
 	#end
 }
