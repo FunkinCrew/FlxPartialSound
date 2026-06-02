@@ -164,7 +164,7 @@ class FlxPartialSound
 
 		threadPool.onComplete.add(function(data:Dynamic):Void
 		{
-			var sndShit = Sound.fromAudioBuffer(audioBuffer);
+			var sndShit = Sound.fromAudioBuffer(data.audioBuffer);
 			Assets.cache.setSound(cacheName, sndShit);
 			cache.set(cacheName, sndShit);
 			promise.complete(sndShit);
