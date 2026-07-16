@@ -13,6 +13,7 @@ import lime.media.AudioBuffer;
 import lime.media.AudioDecoder;
 import lime.system.ThreadPool;
 import lime.utils.UInt8Array;
+import lime._internal.format.Base64;
 import openfl.media.Sound;
 import openfl.utils.Assets;
 
@@ -70,11 +71,20 @@ class FlxPartialSound
 	private static function partialLoadHowlerSprite(cacheName:String, promise:Promise<Sound>, audioPath:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Void
 	{
 		// TODO: If the library that contains the sound isnt preloaded, this fails, so for now, just force load it
-		// if (!Assets.exists(audioPath, SOUND))
-		// {
-		// 	trace("Could not find audio file for partial playback: " + audioPath);
-		// 	return;
-		// }
+		var skipBase64:Bool = false;
+		if (!Assets.exists(audioPath, SOUND))
+		{
+			skipBase64 = true;
+		}
+
+		var audioUrl:String = audioPath;
+		if (!skipBase64)
+		{
+			var fileBytes:Bytes = Assets.getBytes(audioPath);
+			@:privateAccess
+			var type:String = AudioBuffer.__getCodec(fileBytes);
+			audioUrl = 'data:${type};base64,${Base64.encode(fileBytes)}';
+		}
 
 		var promiseGotHowlerBuffer:Promise<AudioBuffer> = new Promise<AudioBuffer>();
 
@@ -100,9 +110,7 @@ class FlxPartialSound
 			promiseGotHowlerBuffer.complete(audioBuffer);
 		}
 
-		// TODO: If the library that contains the sound isnt preloaded, this fails, so for now, just force load it
-		// audioBuffer.__srcHowl = new Howl({src: [Assets.getPath(audioPath)], preload: true, onload: onHowlerLoad});
-		audioBuffer.__srcHowl = new Howl({src: [audioPath], preload: true, onload: onHowlerLoad});
+		audioBuffer.__srcHowl = new Howl({src: [audioUrl], preload: true, onload: onHowlerLoad});
 	}
 	#end
 
