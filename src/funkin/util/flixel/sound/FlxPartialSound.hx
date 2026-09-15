@@ -72,7 +72,7 @@ class FlxPartialSound
 	{
 		// TODO: If the library that contains the sound isnt preloaded, this fails, so for now, just force load it
 		var skipBase64:Bool = false;
-		if (!Assets.exists(audioPath, SOUND))
+		if (!(Assets.exists(audioPath, SOUND) && Assets.isLocal(audioPath, SOUND)))
 		{
 			skipBase64 = true;
 		}
