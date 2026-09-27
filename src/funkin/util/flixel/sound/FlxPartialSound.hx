@@ -2,20 +2,20 @@ package funkin.util.flixel.sound;
 
 import flixel.FlxG;
 import haxe.Int64;
+import haxe.crypto.Base64;
 import haxe.io.Bytes;
 import haxe.io.Path;
 import lime.app.Future;
 import lime.app.Promise;
-#if (js && html5 && lime_howlerjs)
-import lime.media.howlerjs.Howl;
-#end
 import lime.media.AudioBuffer;
 import lime.media.AudioDecoder;
 import lime.system.ThreadPool;
 import lime.utils.UInt8Array;
-import lime._internal.format.Base64;
 import openfl.media.Sound;
 import openfl.utils.Assets;
+#if (js && html5 && lime_howlerjs)
+import lime.media.howlerjs.Howl;
+#end
 
 class FlxPartialSound
 {
