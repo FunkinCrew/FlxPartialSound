@@ -8,6 +8,7 @@ import lime.app.Promise;
 import lime.media.AudioBuffer;
 import lime.media.AudioDecoder;
 import lime.system.ThreadPool;
+import lime.system.WorkOutput;
 import lime.utils.UInt8Array;
 import openfl.media.Sound;
 import openfl.utils.Assets;
@@ -113,6 +114,10 @@ class FlxPartialSound
 	#end
 
 	#if (lime_funkin && (lime_cffi && !macro))
+	@:noCompletion
+	static var localThreadPool:ThreadPool;
+
+	@:noCompletion
 	private static function partialLoadAudioDecoder(cacheName:String, promise:Promise<Sound>, audioPath:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Void
 	{
 		if (!Assets.exists(audioPath, SOUND))
@@ -121,26 +126,37 @@ class FlxPartialSound
 			return;
 		}
 
-		var threadPool:ThreadPool = new ThreadPool();
-
-		function doWork(state:Dynamic, output:Dynamic):Void
+		if (localThreadPool == null)
 		{
-			var audioDecoder:AudioDecoder = AudioDecoder.fromFile(Assets.getPath(audioPath));
+			localThreadPool = new ThreadPool(0, 2);
+			localThreadPool.onComplete.add(localThreadPool_onComplete);
+			localThreadPool.onError.add(localThreadPool_onError);
+		}
 
-			if (audioDecoder == null)
-			{
-				audioDecoder = AudioDecoder.fromBytes(Assets.getBytes(audioPath));
-			}
+		localThreadPool.run(localThreadPool_doWork, {
+			cacheName: cacheName,
+			promise: promise,
+			audioPath: audioPath,
+			rangeStart: rangeStart,
+			rangeEnd: rangeEnd
+		});
+	}
 
-			if (audioDecoder == null)
-			{
-				promise.error("Unsupported file type: " + Path.extension(audioPath));
-				return;
-			}
+	@:noCompletion
+	private static function localThreadPool_doWork(state:Dynamic, output:WorkOutput):Void
+	{
+		var audioDecoder:AudioDecoder = AudioDecoder.fromFile(Assets.getPath(state.audioPath));
 
+		if (audioDecoder == null)
+		{
+			audioDecoder = AudioDecoder.fromBytes(Assets.getBytes(state.audioPath));
+		}
+
+		if (audioDecoder != null)
+		{
 			var totolFrames:Int = Int64.toInt(audioDecoder.total());
-			var framesStart:Int = Std.int(totolFrames * rangeStart);
-			var framesEnd:Int = Std.int(totolFrames * rangeEnd);
+			var framesStart:Int = Std.int(totolFrames * state.rangeStart);
+			var framesEnd:Int = Std.int(totolFrames * state.rangeEnd);
 
 			audioDecoder.seek(framesStart);
 
@@ -149,22 +165,33 @@ class FlxPartialSound
 			audioBuffer.channels = audioDecoder.channels;
 			audioBuffer.dataFormat = S16;
 			audioBuffer.data = UInt8Array.fromBytes(audioDecoder.decode(framesEnd - framesStart, audioBuffer.dataFormat));
-			threadPool.sendComplete({audioBuffer: audioBuffer});
+
+			output.sendComplete({
+				state: state,
+				audioBuffer: audioBuffer
+			});
 		}
-
-		threadPool.onComplete.add(function(data:Dynamic):Void
+		else
 		{
-			var sndShit = Sound.fromAudioBuffer(data.audioBuffer);
-			Assets.cache.setSound(cacheName, sndShit);
-			promise.complete(sndShit);
-		});
+			output.sendError({
+				state: state,
+				message: "Unsupported file type: " + Path.extension(state.audioPath)
+			});
+		}
+	}
 
-		threadPool.onError.add(function(_):Void
-		{
-			promise.error(_);
-		});
+	@:noCompletion
+	private static function localThreadPool_onComplete(data:Dynamic):Void
+	{
+		var sndShit = Sound.fromAudioBuffer(data.audioBuffer);
+		Assets.cache.setSound(data.state.cacheName, sndShit);
+		data.state.promise.complete(sndShit);
+	}
 
-		threadPool.queue(doWork);
+	@:noCompletion
+	private static function localThreadPool_onError(data:Dynamic):Void
+	{
+		data.state.promise.error(data.message);
 	}
 	#end
 }
