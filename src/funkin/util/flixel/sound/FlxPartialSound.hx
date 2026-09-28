@@ -2,8 +2,6 @@ package funkin.util.flixel.sound;
 
 import flixel.FlxG;
 import haxe.Int64;
-import haxe.crypto.Base64;
-import haxe.io.Bytes;
 import haxe.io.Path;
 import lime.app.Future;
 import lime.app.Promise;
@@ -80,10 +78,10 @@ class FlxPartialSound
 		var audioUrl:String = audioPath;
 		if (!skipBase64)
 		{
-			var fileBytes:Bytes = Assets.getBytes(audioPath);
+			var fileBytes:haxe.io.Bytes = Assets.getBytes(audioPath);
 			@:privateAccess
 			var type:String = AudioBuffer.__getCodec(fileBytes);
-			audioUrl = 'data:${type};base64,${Base64.encode(fileBytes)}';
+			audioUrl = 'data:${type};base64,${haxe.crypto.Base64.encode(fileBytes)}';
 		}
 
 		var promiseGotHowlerBuffer:Promise<AudioBuffer> = new Promise<AudioBuffer>();
