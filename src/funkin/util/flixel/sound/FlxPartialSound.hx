@@ -1,19 +1,23 @@
 package funkin.util.flixel.sound;
 
 import flixel.FlxG;
-import haxe.Int64;
-import haxe.io.Path;
 import lime.app.Future;
 import lime.app.Promise;
 import lime.media.AudioBuffer;
-import lime.media.AudioDecoder;
-import lime.system.ThreadPool;
-import lime.system.WorkOutput;
-import lime.utils.UInt8Array;
 import openfl.media.Sound;
 import openfl.utils.Assets;
-#if (js && html5 && lime_howlerjs)
+#if (lime_funkin && (js && html5 && lime_howlerjs))
 import lime.media.howlerjs.Howl;
+#elseif (lime_funkin && (lime_cffi && lime_miniaudio && !macro))
+import haxe.Int64;
+import haxe.io.Bytes;
+import lime.media.miniaudio.MADataFormat;
+import lime.media.miniaudio.MADecoder;
+import lime.media.miniaudio.MADecoderConfig;
+import lime.media.miniaudio.MAHelpers;
+import lime.system.ThreadPool;
+import lime.system.WorkOutput;
+import lime.utils.Int16Array;
 #end
 
 class FlxPartialSound
@@ -57,8 +61,8 @@ class FlxPartialSound
 
 		#if (lime_funkin && (js && html5) && lime_howlerjs)
 		partialLoadHowlerSprite(cacheName, promise, audioPath, rangeStart, rangeEnd);
-		#elseif (lime_funkin && (lime_cffi && !macro))
-		partialLoadAudioDecoder(cacheName, promise, audioPath, rangeStart, rangeEnd);
+		#elseif (lime_funkin && (lime_cffi && !macro) && lime_miniaudio)
+		partialLoadMADecoder(cacheName, promise, audioPath, rangeStart, rangeEnd);
 		#end
 
 		return promise;
@@ -113,12 +117,12 @@ class FlxPartialSound
 	}
 	#end
 
-	#if (lime_funkin && (lime_cffi && !macro))
+	#if (lime_funkin && (lime_cffi && !macro) && lime_miniaudio)
 	@:noCompletion
 	static var localThreadPool:ThreadPool;
 
 	@:noCompletion
-	private static function partialLoadAudioDecoder(cacheName:String, promise:Promise<Sound>, audioPath:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Void
+	private static function partialLoadMADecoder(cacheName:String, promise:Promise<Sound>, audioPath:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Void
 	{
 		if (!Assets.exists(audioPath, SOUND))
 		{
@@ -145,39 +149,59 @@ class FlxPartialSound
 	@:noCompletion
 	private static function localThreadPool_doWork(state:Dynamic, output:WorkOutput):Void
 	{
-		var audioDecoder:AudioDecoder = AudioDecoder.fromFile(Assets.getPath(state.audioPath));
+		var decoder:MADecoder = MADecoder.init_file(state.audioPath, MADecoderConfig.init(S16, 0, 0));
 
-		if (audioDecoder == null)
+		if (decoder == null)
 		{
-			audioDecoder = AudioDecoder.fromBytes(Assets.getBytes(state.audioPath));
+			decoder = MADecoder.init_memory(Assets.getBytes(state.audioPath), MADecoderConfig.init(S16, 0, 0));
 		}
 
-		if (audioDecoder != null)
+		if (decoder != null)
 		{
-			var totolFrames:Int = Int64.toInt(audioDecoder.total());
-			var framesStart:Int = Std.int(totolFrames * state.rangeStart);
-			var framesEnd:Int = Std.int(totolFrames * state.rangeEnd);
+			var totalFrames:Int = Int64.toInt(decoder.get_length_in_pcm_frames());
 
-			audioDecoder.seek(framesStart);
+			if (totalFrames > 0)
+			{
+				var framesStart:Int = Std.int(totalFrames * state.rangeStart);
+				var framesEnd:Int = Std.int(totalFrames * state.rangeEnd);
+				var framesToRead:Int = framesEnd - framesStart;
 
-			var audioBuffer:AudioBuffer = new AudioBuffer();
-			audioBuffer.sampleRate = audioDecoder.sampleRate;
-			audioBuffer.channels = audioDecoder.channels;
-			audioBuffer.dataFormat = S16;
-			audioBuffer.data = UInt8Array.fromBytes(audioDecoder.decode(framesEnd - framesStart, audioBuffer.dataFormat));
+				var dataFormat:MADataFormat = decoder.get_data_format();
+				var bytesPerSample:Int = MAHelpers.get_bytes_per_sample(dataFormat.format);
+				var dataBuffer:Int16Array = new Int16Array(Bytes.alloc(framesToRead * dataFormat.channels * bytesPerSample));
 
-			output.sendComplete({
-				state: state,
-				audioBuffer: audioBuffer
-			});
+				decoder.seek_to_pcm_frame(framesStart);
+
+				if (decoder.read_pcm_frames(#if cpp cpp.Pointer.ofArray(dataBuffer.buffer.getData()) #else null #end, framesToRead) > 0)
+				{
+					if (decoder != null)
+					{
+						decoder.uninit();
+						decoder = null;
+					}
+
+					var audioBuffer = new AudioBuffer();
+
+					audioBuffer.sampleRate = dataFormat.sampleRate;
+					audioBuffer.channels = dataFormat.channels;
+					audioBuffer.format = dataFormat.format;
+					audioBuffer.frames = framesToRead;
+					audioBuffer.data = dataBuffer;
+
+					output.sendComplete({
+						state: state,
+						audioBuffer: audioBuffer
+					});
+
+					return;
+				}
+			}
 		}
-		else
-		{
-			output.sendError({
-				state: state,
-				message: "Unsupported file type: " + Path.extension(state.audioPath)
-			});
-		}
+
+		output.sendError({
+			state: state,
+			message: "Cannot load file: " + state.path
+		});
 	}
 
 	@:noCompletion
