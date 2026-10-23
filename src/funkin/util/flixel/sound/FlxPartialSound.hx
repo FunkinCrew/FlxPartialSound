@@ -14,6 +14,7 @@ import openfl.media.Sound;
 import openfl.utils.Assets;
 #if (js && html5 && lime_howlerjs)
 import lime.media.howlerjs.Howl;
+import lime.media.howlerjs.Howler;
 #end
 
 class FlxPartialSound
@@ -45,6 +46,16 @@ class FlxPartialSound
 	 */
 	public static function partialLoadFromFile(audioPath:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1, ?paddedIntro:Bool = false):Promise<Sound>
 	{
+		return partialLoadInternal(audioPath, rangeStart, rangeEnd, null);
+	}
+
+	public static function partialLoadFromBytes(audioPath:String, audioBytes:haxe.io.Bytes, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Promise<Sound>
+	{
+		return partialLoadInternal(audioPath, rangeStart, rangeEnd, audioBytes);
+	}
+
+	private static function partialLoadInternal(audioPath:String, rangeStart:Float, rangeEnd:Float, preloadedBytes:Null<haxe.io.Bytes>):Promise<Sound>
+	{
 		var promise:Promise<Sound> = new Promise<Sound>();
 		var cacheName:String = audioPath + ".partial-" + rangeStart + "-" + rangeEnd;
 
@@ -56,9 +67,9 @@ class FlxPartialSound
 		}
 
 		#if (lime_funkin && (js && html5) && lime_howlerjs)
-		partialLoadHowlerSprite(cacheName, promise, audioPath, rangeStart, rangeEnd);
+		partialLoadHowlerSprite(cacheName, promise, audioPath, rangeStart, rangeEnd, preloadedBytes);
 		#elseif (lime_funkin && (lime_cffi && !macro))
-		partialLoadAudioDecoder(cacheName, promise, audioPath, rangeStart, rangeEnd);
+		partialLoadAudioDecoder(cacheName, promise, audioPath, rangeStart, rangeEnd, preloadedBytes);
 		#end
 
 		return promise;
@@ -67,22 +78,29 @@ class FlxPartialSound
 	#if (lime_funkin && (js && html5) && lime_howlerjs)
 	@:access(lime.media.AudioBuffer)
 	@:noCompletion
-	private static function partialLoadHowlerSprite(cacheName:String, promise:Promise<Sound>, audioPath:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Void
+	private static function partialLoadHowlerSprite(cacheName:String, promise:Promise<Sound>, audioPath:String, rangeStart:Float, rangeEnd:Float, preloadedBytes:Null<haxe.io.Bytes>):Void
 	{
-		// TODO: If the library that contains the sound isnt preloaded, this fails, so for now, just force load it
-		var skipBase64:Bool = false;
-		if (!(Assets.exists(audioPath, SOUND) && Assets.isLocal(audioPath, SOUND)))
-		{
-			skipBase64 = true;
-		}
-
+		var fileBytes:Null<haxe.io.Bytes> = preloadedBytes;
 		var audioUrl:String = audioPath;
-		if (!skipBase64)
+		var audioObjectUrl:Null<String> = null;
+
+		if (fileBytes == null && Assets.exists(audioPath, SOUND) && Assets.isLocal(audioPath, SOUND))
+			fileBytes = Assets.getBytes(audioPath);
+
+		if (fileBytes != null)
 		{
-			var fileBytes:haxe.io.Bytes = Assets.getBytes(audioPath);
 			@:privateAccess
 			var type:String = AudioBuffer.__getCodec(fileBytes);
-			audioUrl = 'data:${type};base64,${haxe.crypto.Base64.encode(fileBytes)}';
+
+			if (Howler.usingWebAudio)
+			{
+				audioObjectUrl = js.Syntax.code("URL.createObjectURL(new Blob([{0}], { type: {1} }))", fileBytes.getData(), type);
+				audioUrl = audioObjectUrl;
+			}
+			else
+			{
+				audioUrl = 'data:${type};base64,${haxe.crypto.Base64.encode(fileBytes)}';
+			}
 		}
 
 		var promiseGotHowlerBuffer:Promise<AudioBuffer> = new Promise<AudioBuffer>();
@@ -98,8 +116,19 @@ class FlxPartialSound
 
 		audioBuffer.__srcHowlerDefaultSprite = "main";
 
+		function releaseObjectUrl():Void
+		{
+			if (audioObjectUrl != null)
+			{
+				js.Syntax.code("URL.revokeObjectURL({0})", audioObjectUrl);
+				audioObjectUrl = null;
+			}
+		}
+
 		function onHowlerLoad():Void
 		{
+			releaseObjectUrl();
+
 			var duration = audioBuffer.__srcHowl.duration();
 			var start = Math.round(duration * rangeStart * 1000);
 			var end = Math.round(duration * rangeEnd * 1000);
@@ -109,7 +138,16 @@ class FlxPartialSound
 			promiseGotHowlerBuffer.complete(audioBuffer);
 		}
 
-		audioBuffer.__srcHowl = new Howl({src: [audioUrl], preload: true, onload: onHowlerLoad});
+		var audioOptions:Dynamic = {src: [audioUrl], preload: true, onload: onHowlerLoad};
+		audioOptions.onloaderror = function(_id:Dynamic, error:Dynamic):Void
+		{
+			releaseObjectUrl();
+			promise.error(error);
+		};
+
+		var audioFormat:String = Path.extension(audioPath);
+		if (audioFormat.length > 0) audioOptions.format = [audioFormat];
+		audioBuffer.__srcHowl = new Howl(audioOptions);
 	}
 	#end
 
@@ -118,9 +156,9 @@ class FlxPartialSound
 	static var localThreadPool:ThreadPool;
 
 	@:noCompletion
-	private static function partialLoadAudioDecoder(cacheName:String, promise:Promise<Sound>, audioPath:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Void
+	private static function partialLoadAudioDecoder(cacheName:String, promise:Promise<Sound>, audioPath:String, rangeStart:Float, rangeEnd:Float, preloadedBytes:Null<haxe.io.Bytes>):Void
 	{
-		if (!Assets.exists(audioPath, SOUND))
+		if (preloadedBytes == null && !Assets.exists(audioPath, SOUND))
 		{
 			trace("Could not find audio file for partial playback: " + audioPath);
 			return;
@@ -138,14 +176,20 @@ class FlxPartialSound
 			promise: promise,
 			audioPath: audioPath,
 			rangeStart: rangeStart,
-			rangeEnd: rangeEnd
+			rangeEnd: rangeEnd,
+			preloadedBytes: preloadedBytes
 		});
 	}
 
 	@:noCompletion
 	private static function localThreadPool_doWork(state:Dynamic, output:WorkOutput):Void
 	{
-		var audioDecoder:AudioDecoder = AudioDecoder.fromFile(Assets.getPath(state.audioPath));
+		var audioDecoder:AudioDecoder = null;
+		if (state.preloadedBytes != null)
+			audioDecoder = AudioDecoder.fromBytes(state.preloadedBytes);
+
+		if (audioDecoder == null)
+			audioDecoder = AudioDecoder.fromFile(Assets.getPath(state.audioPath));
 
 		if (audioDecoder == null)
 		{
