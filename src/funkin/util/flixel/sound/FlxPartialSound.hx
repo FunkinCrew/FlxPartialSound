@@ -149,7 +149,7 @@ class FlxPartialSound
 			promise.error(error);
 		};
 
-		var audioFormat:String = Path.extension(audioPath);
+		var audioFormat:String = haxe.io.Path.extension(audioPath);
 		if (audioFormat.length > 0) audioOptions.format = [audioFormat];
 		audioBuffer.__srcHowl = new Howl(audioOptions);
 	}
@@ -162,12 +162,6 @@ class FlxPartialSound
 	@:noCompletion
 	private static function partialLoadMADecoder(cacheName:String, promise:Promise<Sound>, audioPath:String, ?rangeStart:Float = 0, ?rangeEnd:Float = 1):Void
 	{
-		if (preloadedBytes == null && !Assets.exists(audioPath, SOUND))
-		{
-			trace("Could not find audio file for partial playback: " + audioPath);
-			return;
-		}
-
 		if (localThreadPool == null)
 		{
 			localThreadPool = new ThreadPool(0, 2);
@@ -180,8 +174,7 @@ class FlxPartialSound
 			promise: promise,
 			audioPath: audioPath,
 			rangeStart: rangeStart,
-			rangeEnd: rangeEnd,
-			preloadedBytes: preloadedBytes
+			rangeEnd: rangeEnd
 		});
 	}
 
