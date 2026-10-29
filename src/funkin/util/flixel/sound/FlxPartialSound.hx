@@ -181,7 +181,7 @@ class FlxPartialSound
 	@:noCompletion
 	private static function localThreadPool_doWork(state:Dynamic, output:WorkOutput):Void
 	{
-		var decoder:MADecoder = MADecoder.init_file(state.audioPath, MADecoderConfig.init(S16, 0, 0));
+		var decoder:MADecoder = MADecoder.init_file(Assets.getPath(state.audioPath), MADecoderConfig.init(S16, 0, 0));
 
 		if (decoder == null)
 		{
