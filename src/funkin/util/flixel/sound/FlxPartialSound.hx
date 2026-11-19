@@ -164,7 +164,7 @@ class FlxPartialSound
 	{
 		if (localThreadPool == null)
 		{
-			localThreadPool = new ThreadPool(0, 2);
+			localThreadPool = new ThreadPool(0, 1);
 			localThreadPool.onComplete.add(localThreadPool_onComplete);
 			localThreadPool.onError.add(localThreadPool_onError);
 		}
